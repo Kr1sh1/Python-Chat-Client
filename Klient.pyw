@@ -35,8 +35,8 @@ class MyWindow(QMainWindow):
             print("Values must be entered for both fields")
             return
         
-        #Establishing a connection with the database in the file "User details.db"
-        connection = sqlite3.connect("User details.db")
+        #Establishing a connection with the database in the file "User-details.db"
+        connection = sqlite3.connect("User-details.db")
         c = connection.cursor()
 
         try:
@@ -48,9 +48,9 @@ class MyWindow(QMainWindow):
             #Error thrown when database doen't exist, this happens when the file was missing so a new one empty one was created above
         except sqlite3.OperationalError:
             #Updating message box in the GUI
-            self.InformationLabel.setText("'User details.db' file missing or empty. Make a new account or place the file in this directory.")
+            self.InformationLabel.setText("'User-details.db' file missing or empty. Make a new account or place the file in this directory.")
             self.InformationLabel.setStyleSheet('color: red')
-            print("'User details.db' file missing or empty. Make a new account or place the file in this directory.")
+            print("'User-details.db' file missing or empty. Make a new account or place the file in this directory.")
             return
 
         #Creating an instance of the SecretCrypt class defined in the file "Encryption.py"
@@ -102,7 +102,7 @@ class MyWindow(QMainWindow):
 
         SC = SecretCrypt()
 
-        connection = sqlite3.connect("User details.db")
+        connection = sqlite3.connect("User-details.db")
         c = connection.cursor()
 
         #Checking if the username is already in use by someone else

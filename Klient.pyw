@@ -1,8 +1,10 @@
 #Importing all necessary modules
-import sys, sqlite3
+import sys
+import sqlite3
+import hashlib
+import os
 from PyQt5 import uic, QtCore
 from PyQt5.QtWidgets import QMainWindow, QApplication
-from Encryption import SecretCrypt
 
 #Main class for the login window
 class MyWindow(QMainWindow):
@@ -53,9 +55,6 @@ class MyWindow(QMainWindow):
             print("'User-details.db' file missing or empty. Make a new account or place the file in this directory.")
             return
 
-        #Creating an instance of the SecretCrypt class defined in the file "Encryption.py"
-        SC = SecretCrypt()
-
         try:
             #Retrieving results from the query just executed
             passwordHash, salt = c.fetchone()
@@ -69,7 +68,7 @@ class MyWindow(QMainWindow):
             return
 
         #hashing the password with the retrieved salt using the method hashPassword in the SecretCrypt class
-        hashedPassword, salt = SC.hashPassword(password, salt)
+        hashedPassword, salt = hashPassword(password, salt)
 
         #Comparing newly hashed password to the existing hashed password in the database
         if passwordHash == hashedPassword:
@@ -100,8 +99,6 @@ class MyWindow(QMainWindow):
             print("Values must be entered for both fields")
             return
 
-        SC = SecretCrypt()
-
         connection = sqlite3.connect("User-details.db")
         c = connection.cursor()
 
@@ -122,7 +119,7 @@ class MyWindow(QMainWindow):
         except sqlite3.DatabaseError:
             pass
 
-        hashedPassword, salt = SC.hashPassword(password)
+        hashedPassword, salt = hashPassword(password)
 
         try:
             c.execute("""INSERT INTO users
@@ -229,6 +226,13 @@ class MyWindow(QMainWindow):
                                        "QPushButton:hover {"
                                        "border-color: blue"
                                        "}")
+
+def hashPassword(password, salt = None):
+        password_bytes = bytes(password, encoding="utf-8")
+        if salt == None:
+            salt = os.urandom(16)
+        hashedPassword = hashlib.pbkdf2_hmac("sha256", password_bytes, salt, 200000)
+        return hashedPassword, salt
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

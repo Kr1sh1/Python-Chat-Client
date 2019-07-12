@@ -25,20 +25,3 @@ class SecretCrypt():
     def decrypt(self, token):
         message = self.__SecureKey.decrypt(token).decode("utf-8")
         return message
-
-    #Function to hash password
-    '''
-    If the function hashPassword is only given one arguement, the password, a random salt is chosen
-    Else if a salt in also given, the password is hashed with that salt.
-    This is so new passwords can be created with a new salt, and so existing passwords can be hashed
-    with their salt to check against a hash in the database.
-    '''
-    def hashPassword(self, password, salt = None):
-        password = bytes(password, encoding="utf-8")
-        if salt == None:
-            salt = os.urandom(16)
-        hashedPassword = hashlib.pbkdf2_hmac("sha256", password, salt, 200000)
-        return hashedPassword, salt
-            
-            
-    

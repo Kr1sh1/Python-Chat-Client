@@ -239,6 +239,13 @@ class MyWindow(QMainWindow):
                                           "border-color: blue"
                                           "}")
 
+#Function to hash password
+'''
+If the function hashPassword is only given one arguement, the password, a random salt is chosen
+Else if a salt in also given, the password is hashed with that salt.
+This is so new passwords can be created with a new salt, and so existing passwords can be hashed
+with their salt to check against a hash in the database.
+'''
 def hash_password(password, salt=None):
     """Hashes a password and returns the result and salt"""
 

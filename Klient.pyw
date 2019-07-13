@@ -1,22 +1,20 @@
-"""All modules are essential"""
+# pylint: disable=C
 import sys
 import sqlite3
 import hashlib
 import os
-from PyQt5 import uic
 from PyQt5.QtWidgets import QMainWindow, QApplication
+from login_window import Ui_MainWindow as Window1
 
 #Main class for the login window
-class MyWindow(QMainWindow):
-    """Application window class"""
+class LoginWindow(QMainWindow, Window1):
 
     def __init__(self):
-        super(MyWindow, self).__init__()
+        super(LoginWindow, self).__init__()
 
-        #Loading and showing the ui file I made using the "Qt Designer" software
-        uic.loadUi('loginui.ui', self)
         #Uncheck next comment to enable borderless mode. Also import QtCore from PyQt5
         #self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
+        self.setupUi(self)
         self.show()
 
         #On click of these buttons, the function named as a parameter is executed
@@ -28,7 +26,6 @@ class MyWindow(QMainWindow):
 
     #Executed when login button pressed
     def login(self):
-        """Checks user details from database and logs you in"""
 
         #User entered values are stored to the variables username and password
         username = self.UsernameLine.text()
@@ -91,9 +88,10 @@ class MyWindow(QMainWindow):
 
         connection.close()
 
+        self.close()
+        WINDOW2 = MainWindow()
     #Executed when register button pressed
     def register(self):
-        """Registers a user into the database"""
 
         username = self.UsernameLine.text()
         password = self.PasswordLine.text()
@@ -147,13 +145,10 @@ class MyWindow(QMainWindow):
 
     #Executed when exit button pressed
     def exit_program(self):
-        """Closes the app"""
-
         sys.exit()
 
     #Executed when darm mode button pressed
     def enable_dark_mode(self):
-        """Enables dark mode in the app"""
 
         self.centralwidget.setStyleSheet("background: '#262626'")
         self.menubar.setStyleSheet("QMenuBar {"
@@ -199,7 +194,6 @@ class MyWindow(QMainWindow):
 
     #Executed when light mode button pressed
     def enable_light_mode(self):
-        """Enables light mode in the app"""
 
         self.centralwidget.setStyleSheet("background: #F0F0F0")
         self.menubar.setStyleSheet("QMenuBar {"
@@ -239,15 +233,20 @@ class MyWindow(QMainWindow):
                                           "border-color: blue"
                                           "}")
 
+####################################################
+# New GUI needs to be designed for the main window #
+####################################################
+class MainWindow(QMainWindow):
+    def __init__(self):
+        pass
 #Function to hash password
-'''
-If the function hashPassword is only given one arguement, the password, a random salt is chosen
-Else if a salt in also given, the password is hashed with that salt.
-This is so new passwords can be created with a new salt, and so existing passwords can be hashed
-with their salt to check against a hash in the database.
-'''
+
+#If the function hashPassword is only given one arguement, the password, a random salt is chosen
+#Else if a salt in also given, the password is hashed with that salt.
+#This is so new passwords can be created with a new salt, and so existing passwords can be hashed
+#with their salt to check against a hash in the database.
+
 def hash_password(password, salt=None):
-    """Hashes a password and returns the result and salt"""
 
     password_bytes = bytes(password, encoding="utf-8")
     if salt is None:
@@ -257,6 +256,6 @@ def hash_password(password, salt=None):
 
 if __name__ == '__main__':
     APP = QApplication(sys.argv)
-    WINDOW = MyWindow()
+    WINDOW1 = LoginWindow()
     sys.exit(APP.exec_())
     

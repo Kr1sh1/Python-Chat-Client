@@ -5,6 +5,7 @@ import hashlib
 import os
 from PyQt5.QtWidgets import QMainWindow, QApplication
 from login_window import Ui_MainWindow as Window1
+from main_window import Ui_MainWindow as Window2
 
 #Main class for the login window
 class LoginWindow(QMainWindow, Window1):
@@ -88,8 +89,9 @@ class LoginWindow(QMainWindow, Window1):
 
         connection.close()
 
+        CONTROLLER.mainWindow()
         self.close()
-        WINDOW2 = MainWindow()
+
     #Executed when register button pressed
     def register(self):
 
@@ -233,12 +235,23 @@ class LoginWindow(QMainWindow, Window1):
                                           "border-color: blue"
                                           "}")
 
-####################################################
-# New GUI needs to be designed for the main window #
-####################################################
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow, Window2):
     def __init__(self):
-        pass
+        super(MainWindow, self).__init__()
+
+        self.setupUi(self)
+        self.show()
+
+class ControllerClass():
+    def __init__(self):
+        self.login()
+
+    def login(self):
+        self.WINDOW1 = LoginWindow()
+
+    def mainWindow(self):
+        self.WINDOW2 = MainWindow()
+
 #Function to hash password
 
 #If the function hashPassword is only given one arguement, the password, a random salt is chosen
@@ -256,6 +269,6 @@ def hash_password(password, salt=None):
 
 if __name__ == '__main__':
     APP = QApplication(sys.argv)
-    WINDOW1 = LoginWindow()
+    CONTROLLER = ControllerClass()
     sys.exit(APP.exec_())
     

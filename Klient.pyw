@@ -3,6 +3,9 @@ import sys
 import sqlite3
 import hashlib
 import os
+import socket
+import threading
+from time import sleep
 from PyQt5.QtWidgets import QMainWindow, QApplication
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
@@ -88,10 +91,12 @@ class LoginWindow(QMainWindow, Window1):
             return
 
         connection.close()
-
+        self.username = username
         CONTROLLER.mainWindow()
-        self.close()
 
+    def get_username(self):
+        return self.username
+    
     #Executed when register button pressed
     def register(self):
 
@@ -250,6 +255,17 @@ class ControllerClass():
         self.WINDOW1 = LoginWindow()
 
     def mainWindow(self):
+        username = self.WINDOW1.get_username()
+        self.WINDOW1.close()
+        
+        #Running the broadcast function in a separate thread so the main program can continue
+        #This thread is a "daemon", so when the main program thread is killed, this thread will also be killed.
+        #This makes sure no threads are left alive accidentally is the program is force closed.
+        t1 = threading.Thread(target=broadcast_self, args=(username,), daemon=True)
+        t1.start()
+        t2 = threading.Thread(target=detect_other_clients, daemon=True)
+        t2.start()
+
         self.WINDOW2 = MainWindow()
 
 #Function to hash password
@@ -266,6 +282,40 @@ def hash_password(password, salt=None):
         salt = os.urandom(16)
     hashed_password = hashlib.pbkdf2_hmac("sha256", password_bytes, salt, 200000)
     return hashed_password, salt
+
+#This function announces itself on the local network to anyone listening on port 40000
+#This allows us and other clients to see who's online.
+def broadcast_self(username):
+    PORT = 40000
+    USERNAME = username + ","
+    MAGIC_PASS = "o8H1s7,"
+    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
+    MESSAGE = MAGIC_PASS + USERNAME + IP_ADDRESS
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', 0))
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+    while True:
+        sock.sendto(bytes(MESSAGE, encoding="utf-8"), ('<broadcast>', PORT))
+        print("Broadcasting...")
+        sleep(2)
+
+def detect_other_clients():
+    PORT = 40000
+    MAGIC_PASS = "o8H1s7"
+    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', PORT))
+
+    while 1:
+        data, addr = sock.recvfrom(1024)
+        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
+            username = data.decode("utf-8").split(",")[1]
+            print("got service announcement from", username)
+            CONTROLLER.WINDOW2.listWidget.addItem(username)
+            CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(int(CONTROLLER.WINDOW2.numberOfClientsLabel.text())+1))
 
 if __name__ == '__main__':
     APP = QApplication(sys.argv)

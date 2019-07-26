@@ -5,7 +5,8 @@ import hashlib
 import os
 import socket
 import threading
-from time import sleep
+from copy import deepcopy
+from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
@@ -262,11 +263,14 @@ class ControllerClass():
         #This thread is a "daemon", so when the main program thread is killed, this thread will also be killed.
         #This makes sure no threads are left alive accidentally is the program is force closed.
         t1 = threading.Thread(target=broadcast_self, args=(username,), daemon=True)
-        t1.start()
         t2 = threading.Thread(target=detect_other_clients, daemon=True)
-        t2.start()
+        t3 = threading.Thread(target=remove_offline_clients, daemon=True)
 
         self.WINDOW2 = MainWindow()
+
+        t1.start()
+        t2.start()
+        t3.start()
 
 #Function to hash password
 
@@ -288,6 +292,9 @@ def hash_password(password, salt=None):
 def broadcast_self(username):
     PORT = 40000
     USERNAME = username + ","
+
+    #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 40000
+    #When detecting broadcasts, we can check if the MAGIC_PASS value is at the beginning, so we know that the message is meant for us
     MAGIC_PASS = "o8H1s7,"
     IP_ADDRESS = socket.gethostbyname(socket.gethostname())
     MESSAGE = MAGIC_PASS + USERNAME + IP_ADDRESS
@@ -296,11 +303,13 @@ def broadcast_self(username):
     sock.bind(('', 0))
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
+    #Broadcast the message every 2 seconds
     while True:
         sock.sendto(bytes(MESSAGE, encoding="utf-8"), ('<broadcast>', PORT))
         print("Broadcasting...")
         sleep(2)
 
+#This function detects broadcasts on port 40000 made by other instances of this program.
 def detect_other_clients():
     PORT = 40000
     MAGIC_PASS = "o8H1s7"
@@ -311,11 +320,35 @@ def detect_other_clients():
 
     while 1:
         data, addr = sock.recvfrom(1024)
+
+        #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
             username = data.decode("utf-8").split(",")[1]
             print("got service announcement from", username)
-            CONTROLLER.WINDOW2.listWidget.addItem(username)
-            CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(int(CONTROLLER.WINDOW2.numberOfClientsLabel.text())+1))
+            update_online_clients([addr[0], username])
+
+def remove_offline_clients():
+    global clients_online
+    clients_online = {}
+    while True:
+        clone_clients_online = deepcopy(clients_online)
+        for key, value in clone_clients_online.items():
+            if (time()-value[0]) > 3:
+                clients_online.pop(key)
+
+        CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
+        sleep(1)
+
+def update_online_clients(client_data):
+    global clients_online
+    
+    clone_clients_online = deepcopy(clients_online)
+    for key in clone_clients_online.items():
+        if key == client_data[0]:
+            clients_online[key] = [time(), client_data[1]]
+            return
+        
+    clients_online[client_data[0]] = [time(), client_data[1]]
 
 if __name__ == '__main__':
     APP = QApplication(sys.argv)

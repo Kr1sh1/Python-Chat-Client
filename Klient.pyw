@@ -25,7 +25,7 @@ class LoginWindow(QMainWindow, Window1):
         #On click of these buttons, the function named as a parameter is executed
         self.LoginButton.clicked.connect(self.login)
         self.RegisterButton.clicked.connect(self.register)
-        self.actionExit.triggered.connect(self.exit_program)
+        self.actionExit.triggered.connect(exit_program)
         self.actionDark_Mode.triggered.connect(self.enable_dark_mode)
         self.actionLight_Mode.triggered.connect(self.enable_light_mode)
 
@@ -151,10 +151,6 @@ class LoginWindow(QMainWindow, Window1):
         self.InformationLabel.setStyleSheet('color: green')
         print("registration complete!")
 
-    #Executed when exit button pressed
-    def exit_program(self):
-        sys.exit()
-
     #Executed when darm mode button pressed
     def enable_dark_mode(self):
 
@@ -248,6 +244,9 @@ class MainWindow(QMainWindow, Window2):
         self.setupUi(self)
         self.show()
 
+        #On click of these buttons, the function named as a parameter is executed
+        self.actionExit.triggered.connect(exit_program)
+
 class ControllerClass():
     def __init__(self):
         self.login()
@@ -271,6 +270,10 @@ class ControllerClass():
         t1.start()
         t2.start()
         t3.start()
+
+#Executed when exit button pressed
+def exit_program():
+    sys.exit()
 
 #Function to hash password
 

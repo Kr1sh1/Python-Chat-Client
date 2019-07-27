@@ -1,4 +1,4 @@
-# pylint: disable=C
+# pylint: disable=W0601,W0201,C
 import sys
 import sqlite3
 import hashlib
@@ -7,7 +7,8 @@ import socket
 import threading
 from copy import deepcopy
 from time import sleep, time
-from PyQt5.QtWidgets import QMainWindow, QApplication
+from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem
+from PyQt5 import Qt
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
 
@@ -97,7 +98,7 @@ class LoginWindow(QMainWindow, Window1):
 
     def get_username(self):
         return self.username
-    
+
     #Executed when register button pressed
     def register(self):
 
@@ -257,9 +258,9 @@ class ControllerClass():
     def mainWindow(self):
         username = self.WINDOW1.get_username()
         self.WINDOW1.close()
-        
+
         #Running the broadcast function in a separate thread so the main program can continue
-        #This thread is a "daemon", so when the main program thread is killed, this thread will also be killed.
+        #This thread is a "daemon", so when the main program thread is killed this thread will also be killed.
         #This makes sure no threads are left alive accidentally is the program is force closed.
         t1 = threading.Thread(target=broadcast_self, args=(username,), daemon=True)
         t2 = threading.Thread(target=detect_other_clients, daemon=True)
@@ -330,28 +331,48 @@ def detect_other_clients():
             print("got service announcement from", username)
             update_online_clients([addr[0], username])
 
+#Remove clients that haven't broadcasted in the last 3 seconds from our dictionary
 def remove_offline_clients():
+    #Global variable lets us access this variable outside of this function
     global clients_online
     clients_online = {}
     while True:
+        #Creating a copy of the dictionary
         clone_clients_online = deepcopy(clients_online)
         for key, value in clone_clients_online.items():
             if (time()-value[0]) > 3:
                 clients_online.pop(key)
+                client_data = [key, value[1]]
+                update_online_clients_list(client_data, "rm")
 
         CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
         sleep(1)
 
+#Everytime a broadcast is detected, this function is run
+#Existing clients will have the time stamp of their last broadcast updated
+#New clients will be added to our dictionary
 def update_online_clients(client_data):
     global clients_online
     
     clone_clients_online = deepcopy(clients_online)
     for key in clone_clients_online.items():
-        if key == client_data[0]:
-            clients_online[key] = [time(), client_data[1]]
+        if key[0] == client_data[0]:
+            #Updating only the timestamp
+            clients_online[key[0]] = [time(), client_data[1]]
             return
-        
+
+    #Adding client to dictionary
     clients_online[client_data[0]] = [time(), client_data[1]]
+    update_online_clients_list(client_data, "add")
+
+#Updating the list users click on in the GUI
+def update_online_clients_list(client_data, action):
+    if action == "rm":
+        item = CONTROLLER.WINDOW2.listWidget.findItems((client_data[1] + " " + str(client_data[0])), Qt.Qt.MatchExactly)
+        CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item[0]))
+    else:
+        item = QListWidgetItem(client_data[1] + " " + str(client_data[0]))
+        CONTROLLER.WINDOW2.listWidget.addItem(item)
 
 if __name__ == '__main__':
     APP = QApplication(sys.argv)

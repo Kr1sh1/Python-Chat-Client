@@ -344,8 +344,8 @@ def remove_offline_clients():
                 clients_online.pop(key)
                 client_data = [key, value[1]]
                 update_online_clients_list(client_data, "rm")
+                CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
-        CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
         sleep(1)
 
 #Everytime a broadcast is detected, this function is run
@@ -364,6 +364,7 @@ def update_online_clients(client_data):
     #Adding client to dictionary
     clients_online[client_data[0]] = [time(), client_data[1]]
     update_online_clients_list(client_data, "add")
+    CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
 #Updating the list users click on in the GUI
 def update_online_clients_list(client_data, action):

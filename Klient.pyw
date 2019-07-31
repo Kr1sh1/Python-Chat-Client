@@ -261,7 +261,7 @@ class MainWindow(QMainWindow, Window2):
         tab = QWidget()
         tab.setObjectName(object_name)
         self.tabWidget.addTab(tab, selected_user)
-        print("tab added")
+        self.tabWidget.setCurrentIndex(tab_count)
 
 class ControllerClass():
     def __init__(self):

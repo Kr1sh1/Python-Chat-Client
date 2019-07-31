@@ -7,7 +7,7 @@ import socket
 import threading
 from copy import deepcopy
 from time import sleep, time
-from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem
+from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget
 from PyQt5 import Qt
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
@@ -247,6 +247,21 @@ class MainWindow(QMainWindow, Window2):
 
         #On click of these buttons, the function named as a parameter is executed
         self.actionExit.triggered.connect(exit_program)
+        self.listWidget.itemSelectionChanged.connect(self.item_changed)
+
+    def item_changed(self):
+        selected_user = self.listWidget.selectedItems()[0].text()
+        tab_count = self.tabWidget.count()
+        for x in range(tab_count):
+            if self.tabWidget.tabText(x) == selected_user:
+                self.tabWidget.setCurrentIndex(x)
+                return
+        
+        object_name = "object " + str(self.tabWidget.count())
+        tab = QWidget()
+        tab.setObjectName(object_name)
+        self.tabWidget.addTab(tab, selected_user)
+        print("tab added")
 
 class ControllerClass():
     def __init__(self):
@@ -340,7 +355,9 @@ def remove_offline_clients():
         #Creating a copy of the dictionary
         clone_clients_online = deepcopy(clients_online)
         for key, value in clone_clients_online.items():
-            if (time()-value[0]) > 3:
+            #If broadcast hasn't been received in the last 4 seconds, this condition is true
+            #The client is then removed from our dictionary
+            if (time()-value[0]) > 4:
                 clients_online.pop(key)
                 client_data = [key, value[1]]
                 update_online_clients_list(client_data, "rm")

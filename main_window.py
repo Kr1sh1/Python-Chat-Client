@@ -6,6 +6,9 @@ class Ui_MainWindow(object):
         MainWindow.resize(1280, 720)
         MainWindow.setMinimumSize(QtCore.QSize(1280, 720))
         MainWindow.setMaximumSize(QtCore.QSize(1280, 720))
+        icon = QtGui.QIcon()
+        icon.addPixmap(QtGui.QPixmap("../../../Pictures/Inkscape/K Keyboard.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        MainWindow.setWindowIcon(icon)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.scrollArea = QtWidgets.QScrollArea(self.centralwidget)
@@ -20,6 +23,7 @@ class Ui_MainWindow(object):
         self.listWidget.setStyleSheet("QListWidget {\n"
 "background-color: rgb(66, 66, 66);\n"
 "border: 5px solid rgb(85, 0, 255);\n"
+"color: rgb(255, 255, 255);\n"
 "}")
         self.listWidget.setObjectName("listWidget")
         self.scrollArea.setWidget(self.scrollAreaWidgetContents)
@@ -29,6 +33,18 @@ class Ui_MainWindow(object):
         self.numberOfClientsLabel = QtWidgets.QLabel(self.centralwidget)
         self.numberOfClientsLabel.setGeometry(QtCore.QRect(220, 0, 21, 20))
         self.numberOfClientsLabel.setObjectName("numberOfClientsLabel")
+        self.tabWidget = QtWidgets.QTabWidget(self.centralwidget)
+        self.tabWidget.setGeometry(QtCore.QRect(300, -2, 984, 705))
+        self.tabWidget.setStyleSheet("background-color: rgb(255, 85, 0);")
+        self.tabWidget.setObjectName("tabWidget")
+        self.DefaultTab = QtWidgets.QWidget()
+        self.DefaultTab.setObjectName("DefaultTab")
+        self.label_2 = QtWidgets.QLabel(self.DefaultTab)
+        self.label_2.setGeometry(QtCore.QRect(870, 10, 101, 121))
+        self.label_2.setText("")
+        self.label_2.setPixmap(QtGui.QPixmap("../../../Pictures/Inkscape/k100x120.png"))
+        self.label_2.setObjectName("label_2")
+        self.tabWidget.addTab(self.DefaultTab, "")
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
         self.menubar.setGeometry(QtCore.QRect(0, 0, 1280, 21))
@@ -42,6 +58,7 @@ class Ui_MainWindow(object):
         self.menubar.addAction(self.menuSettings.menuAction())
 
         self.retranslateUi(MainWindow)
+        self.tabWidget.setCurrentIndex(0)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
     def retranslateUi(self, MainWindow):
@@ -49,5 +66,6 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.label.setText(_translate("MainWindow", "Clients found on local network:"))
         self.numberOfClientsLabel.setText(_translate("MainWindow", "0"))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.DefaultTab), _translate("MainWindow", "Welcome!"))
         self.menuSettings.setTitle(_translate("MainWindow", "Settings"))
         self.actionExit.setText(_translate("MainWindow", "Exit"))

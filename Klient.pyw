@@ -247,14 +247,16 @@ class MainWindow(QMainWindow, Window2):
 
         #On click of these buttons, the function named as a parameter is executed
         self.actionExit.triggered.connect(exit_program)
-        self.listWidget.itemSelectionChanged.connect(self.item_changed)
+        self.listWidget.itemDoubleClicked.connect(self.item_changed)
 
-    def item_changed(self):
-        selected_user = self.listWidget.selectedItems()[0].text()
+    def item_changed(self, item):
+        selected_user = item.text()
         tab_count = self.tabWidget.count()
         for x in range(tab_count):
             if self.tabWidget.tabText(x) == selected_user:
-                self.tabWidget.setCurrentIndex(x)
+                if self.tabWidget.currentIndex != x:
+                    self.tabWidget.setCurrentIndex(x)
+
                 return
         
         object_name = "object " + str(self.tabWidget.count())

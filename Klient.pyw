@@ -312,13 +312,12 @@ def hash_password(password, salt=None):
 #This allows us and other clients to see who's online.
 def broadcast_self(username):
     PORT = 40000
-    USERNAME = username + ","
+    USERNAME = username
 
     #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 40000
     #When detecting broadcasts, we can check if the MAGIC_PASS value is at the beginning, so we know that the message is meant for us
     MAGIC_PASS = "o8H1s7,"
-    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
-    MESSAGE = MAGIC_PASS + USERNAME + IP_ADDRESS
+    MESSAGE = MAGIC_PASS + USERNAME
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', 0))

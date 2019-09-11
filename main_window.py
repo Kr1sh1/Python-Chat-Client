@@ -83,7 +83,10 @@ class Ui_MainWindow(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.tabWidget.sizePolicy().hasHeightForWidth())
         self.tabWidget.setSizePolicy(sizePolicy)
-        self.tabWidget.setStyleSheet("background-color: rgb(255, 85, 0);")
+        self.tabWidget.setStyleSheet(
+"background-color: rgb(255, 85, 0);\n"
+"border: 1px solid rgb(85, 0, 255);\n"
+)
         self.tabWidget.setObjectName("tabWidget")
         self.DefaultTab = QtWidgets.QWidget()
         self.DefaultTab.setObjectName("DefaultTab")

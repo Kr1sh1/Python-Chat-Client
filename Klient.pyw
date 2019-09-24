@@ -5,20 +5,12 @@ import hashlib
 import os
 import socket
 import threading
-from secrets import randbits
 from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
 from PyQt5 import Qt, QtCore, QtWidgets
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
-
-#These constants are used for the diffie-hellman key exchange
-#The prime number used is 617 digits long and was aquired from https://www.ietf.org/rfc/rfc3526.txt
-PRIME = 32317006071311007300338913926423828248817941241140239112842009751400741706634354222619689417363569347117901737909704191754605873209195028853758986185622153212175412514901774520270235796078236248884246189477587641105928646099411723245426622522193230540919037680524235519125679715870117001058055877651038861847280257976054903569732561526167081339361799541336476559160368317896729073178384589680639671900977202194168647225871031411336429319536193471636533209717077448227988588565369208645296636077250268955505928362751121174096972998068410554359584866583291642136218231078990999448652468262416972035911852507045361090559
-GENERATOR = 2
-SECRET = randbits(256)
-SEND_TO_PARTY = pow(GENERATOR, SECRET, PRIME)
 
 #Main class for the login window
 class LoginWindow(QMainWindow, Window1):
@@ -405,7 +397,6 @@ def exit_program():
 #with their salt to check against a hash in the database.
 
 def hash_password(password, salt=None):
-
     password_bytes = bytes(password, encoding="utf-8")
     if salt is None:
         salt = os.urandom(16)
@@ -447,7 +438,8 @@ def detect_other_clients():
         print(f"Recieved some data, not sure if compatible: {data}{addr}")
         print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
-        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
+        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
+        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             username = data.decode("utf-8").split(",")[1]
             print(f"got service announcement from: {username}")
             update_online_clients([addr[0], username])
@@ -458,7 +450,8 @@ def remove_offline_clients():
     global clients_online
     clients_online = {}
     while True:
-        #Creating a copy of the dictionary, deepcopies prevent race conditions from occuring due to multi-threading
+        #Creating a copy of the dictionary, deepcopies prevent the original copy from being modified
+        #Deepcopies are necessary here to prevent race conditions from occuring due to multiple threads attempting to access the same variable
         clone_clients_online = deepcopy(clients_online)
         for key, value in clone_clients_online.items():
             #If broadcast hasn't been received in the last 4 seconds, this condition is true

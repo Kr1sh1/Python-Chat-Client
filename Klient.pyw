@@ -419,6 +419,9 @@ class ControllerClass():
 def exit_program():
     sys.exit()
 
+#TODO
+#Messages are limited to 501 bytes with current implementation
+#Probably should do something about that
 def send_message(selected_user, message):
     PORT = 40001
     MAGIC_PASS = "iJ9d2J,"
@@ -432,6 +435,8 @@ def send_message(selected_user, message):
     except Exception as e:
         print(f"Exception :{e}")
 
+#TODO
+#Fix colour of text appearing in message box
 def receive_messages():
     PORT = 40001
     MAGIC_PASS = "iJ9d2J"
@@ -447,8 +452,8 @@ def receive_messages():
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
-            data = data.decode("utf-8").split(",")
-            encrypted_data = eval(",".join(data[1:]))[0]
+            data = data.decode("utf-8").split(",", maxsplit = 1)
+            encrypted_data = eval(data[1])[0]
             decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
             username = decrypted_data.split(",")[0]
             message = "<font color = 'blue'>" + ",".join(decrypted_data.split(",")[1:]) + "</color>"
@@ -511,9 +516,9 @@ def detect_other_clients():
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
-            data = data.decode("utf-8").split(",")
+            data = data.decode("utf-8").split(",", maxsplit=2)
             username = data[1]
-            PUBLIC_KEY = pickle.loads(eval(",".join(data[2:]))[0])
+            PUBLIC_KEY = pickle.loads(eval(data[2])[0])
             print(f"got service announcement from: {username}")
             update_online_clients([addr[0], username, PUBLIC_KEY])
 

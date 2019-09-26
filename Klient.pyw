@@ -5,6 +5,9 @@ import hashlib
 import os
 import socket
 import threading
+import rsa
+import pickle
+import multiprocessing
 from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
@@ -12,6 +15,26 @@ from PyQt5 import Qt, QtCore, QtWidgets
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
 
+class RSACrypt():
+    def __init__(self):
+        number_of_cpu_cores = multiprocessing.cpu_count()
+        (self.__public_key , self.__private_key) = rsa.newkeys(4096, poolsize=number_of_cpu_cores)
+
+    def get_public_key(self):
+        return self.__public_key
+    def encrypt_message(self, message, pub_key):
+        message_bytes = message.encode("utf8")
+        encrypt_message = rsa.encrypt(message_bytes, pub_key)
+        return encrypt_message
+
+    def decrypt_message(self, encrypt_message):
+        decrypt_message_bytes = rsa.decrypt(encrypt_message, self.__private_key)
+        decrypt_message = decrypt_message_bytes.decode("utf8")
+        return decrypt_message
+
+
+#TODO
+#Make commas illegal characters in a username
 #Main class for the login window
 class LoginWindow(QMainWindow, Window1):
 
@@ -256,6 +279,7 @@ class LoginWindow(QMainWindow, Window1):
                                           "border-color: blue"
                                           "}")
 
+
 class MainWindow(QMainWindow, Window2):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -268,6 +292,7 @@ class MainWindow(QMainWindow, Window2):
         self.actionExit.triggered.connect(exit_program)
         self.listWidget.itemDoubleClicked.connect(self.item_changed)
 
+        self.tabs = {}
     def item_changed(self, item):
         selected_user = item.text()
         tab_count = self.tabWidget.count()
@@ -305,6 +330,7 @@ class MainWindow(QMainWindow, Window2):
         self.tabWidget.addTab(tab, selected_user)
         self.tabWidget.setCurrentIndex(tab_count)
 
+        self.tabs[selected_user] = message_box
     def create_messagebox(self, tab):
         verticalLayout_2 = QtWidgets.QVBoxLayout()
         verticalLayout_2.setObjectName("verticalLayout_2")
@@ -360,6 +386,8 @@ class MainWindow(QMainWindow, Window2):
         message_box.append(message)
 
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
+        send_message(selected_user, message)
+
 
 class ControllerClass():
     def __init__(self):
@@ -378,16 +406,56 @@ class ControllerClass():
         t1 = threading.Thread(target=broadcast_self, args=(self.username,), daemon=True)
         t2 = threading.Thread(target=detect_other_clients, daemon=True)
         t3 = threading.Thread(target=remove_offline_clients, daemon=True)
+        t4 = threading.Thread(target=receive_messages, daemon=True)
 
         self.WINDOW2 = MainWindow()
 
         t1.start()
         t2.start()
         t3.start()
+        t4.start()
 
 #Executed when exit button pressed
 def exit_program():
     sys.exit()
+
+def send_message(selected_user, message):
+    PORT = 40001
+    MAGIC_PASS = "iJ9d2J,"
+    message = CONTROLLER.username + "," + message
+    selected_user_ip = selected_user.split(" ")[-1]
+    PUBLIC_KEY = clients_online.get(selected_user_ip)[2]
+    encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY)]), encoding="utf8")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto(encrypted_message, (selected_user_ip, PORT))
+    except Exception as e:
+        print(f"Exception :{e}")
+
+def receive_messages():
+    PORT = 40001
+    MAGIC_PASS = "iJ9d2J"
+    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', PORT))
+
+    while 1:
+        data, addr = sock.recvfrom(2048)
+        #print(f"Recieved some data, not sure if relevant: {data}{addr}")
+        print(IP_ADDRESS)
+        #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
+        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
+        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
+            data = data.decode("utf-8").split(",")
+            encrypted_data = eval(",".join(data[1:]))[0]
+            decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
+            username = decrypted_data.split(",")[0]
+            message = "<font color = 'blue'>" + ",".join(decrypted_data.split(",")[1:]) + "</color>"
+            selected_user = username + " " + addr[0]
+            tab = CONTROLLER.WINDOW2.tabs
+            message_box = tab.get(selected_user)
+            message_box.append(message)
 
 #Function to hash password
 
@@ -407,12 +475,15 @@ def hash_password(password, salt=None):
 #This allows us and other clients to see who's online.
 def broadcast_self(username):
     PORT = 40000
-    USERNAME = username
+    USERNAME = username + ","
+
+    #Other users on the network need this key to encrypt their messages and send them to you
+    PUBLIC_KEY = RSA_ENCRYPTION.get_public_key()
 
     #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 40000
     #When detecting broadcasts, we can check if the MAGIC_PASS value is at the beginning, so we know that the message is meant for us
     MAGIC_PASS = "o8H1s7,"
-    MESSAGE = MAGIC_PASS + USERNAME
+    MESSAGE = bytes(str(MAGIC_PASS + USERNAME) + str([pickle.dumps(PUBLIC_KEY)]), encoding="utf8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', 0))
@@ -420,7 +491,7 @@ def broadcast_self(username):
 
     #Broadcast the message every 2 seconds
     while True:
-        sock.sendto(bytes(MESSAGE, encoding="utf-8"), ('<broadcast>', PORT))
+        sock.sendto(MESSAGE, ('<broadcast>', PORT))
         print("Broadcasting...")
         sleep(2)
 
@@ -434,15 +505,17 @@ def detect_other_clients():
     sock.bind(('', PORT))
 
     while 1:
-        data, addr = sock.recvfrom(1024)
-        print(f"Recieved some data, not sure if compatible: {data}{addr}")
+        data, addr = sock.recvfrom(4096)
+        #print(f"Recieved some data, not sure if compatible: {data}{addr}")
         print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
-            username = data.decode("utf-8").split(",")[1]
+            data = data.decode("utf-8").split(",")
+            username = data[1]
+            PUBLIC_KEY = pickle.loads(eval(",".join(data[2:]))[0])
             print(f"got service announcement from: {username}")
-            update_online_clients([addr[0], username])
+            update_online_clients([addr[0], username, PUBLIC_KEY])
 
 #Remove clients that haven't broadcasted in the last 3 seconds from our dictionary
 def remove_offline_clients():
@@ -474,11 +547,11 @@ def update_online_clients(client_data):
     for key in clone_clients_online.items():
         if key[0] == client_data[0]:
             #Updating only the timestamp
-            clients_online[key[0]] = [time(), client_data[1]]
+            clients_online[key[0]] = [time(), client_data[1], client_data[2]]
             return
 
     #Adding client to dictionary
-    clients_online[client_data[0]] = [time(), client_data[1]]
+    clients_online[client_data[0]] = [time(), client_data[1], client_data[2]]
     update_online_clients_list(client_data, "add")
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
@@ -492,6 +565,9 @@ def update_online_clients_list(client_data, action):
         CONTROLLER.WINDOW2.listWidget.addItem(item)
 
 if __name__ == '__main__':
+    print("Generating keys for asymmetric encryption...")
+    RSA_ENCRYPTION = RSACrypt()
+    print("Keys generated")
     APP = QApplication(sys.argv)
     CONTROLLER = ControllerClass()
     sys.exit(APP.exec_())

@@ -11,7 +11,7 @@ import multiprocessing
 from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
-from PyQt5 import Qt, QtCore, QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from login_window import Ui_MainWindow as Window1
 from main_window import Ui_MainWindow as Window2
 
@@ -397,6 +397,8 @@ class ControllerClass():
         self.WINDOW1 = LoginWindow()
 
     def mainWindow(self):
+        global dict_list_items
+        dict_list_items = {}
         self.username = self.WINDOW1.get_username()
         self.WINDOW1.close()
 
@@ -422,6 +424,9 @@ def exit_program():
 #TODO
 #Messages are limited to 501 bytes with current implementation
 #Probably should do something about that
+
+#TODO
+#Don't attempt to send messages if the user went offline
 def send_message(selected_user, message):
     PORT = 40001
     MAGIC_PASS = "iJ9d2J,"
@@ -440,7 +445,7 @@ def send_message(selected_user, message):
 def receive_messages():
     PORT = 40001
     MAGIC_PASS = "iJ9d2J"
-    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
+    IP_ADDRESS = socket.gethostbyname(socket.getfqdn())
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', PORT))
@@ -450,8 +455,8 @@ def receive_messages():
         #print(f"Recieved some data, not sure if relevant: {data}{addr}")
         print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
-        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
-        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
+        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
+        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit = 1)
             encrypted_data = eval(data[1])[0]
             decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
@@ -504,7 +509,7 @@ def broadcast_self(username):
 def detect_other_clients():
     PORT = 40000
     MAGIC_PASS = "o8H1s7"
-    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
+    IP_ADDRESS = socket.gethostbyname(socket.getfqdn())
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', PORT))
@@ -514,8 +519,8 @@ def detect_other_clients():
         #print(f"Recieved some data, not sure if compatible: {data}{addr}")
         print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
-        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
-        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
+        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
+        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit=2)
             username = data[1]
             PUBLIC_KEY = pickle.loads(eval(data[2])[0])
@@ -560,14 +565,20 @@ def update_online_clients(client_data):
     update_online_clients_list(client_data, "add")
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
+#TODO
+#Make sure new implementation is working
 #Updating the list users click on in the GUI
 def update_online_clients_list(client_data, action):
+    global dict_list_items
     if action == "rm":
-        item = CONTROLLER.WINDOW2.listWidget.findItems((client_data[1] + " " + str(client_data[0])), Qt.Qt.MatchExactly)
-        CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item[0]))
+        item = dict_list_items.get(client_data[1] + " " + client_data[0])
+        CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item))
+        y = 0
     else:
         item = QListWidgetItem(client_data[1] + " " + str(client_data[0]))
         CONTROLLER.WINDOW2.listWidget.addItem(item)
+        dict_list_items[client_data[1] + " " + client_data[0]] = item
+        y = 0
 
 if __name__ == '__main__':
     print("Generating keys for asymmetric encryption...")

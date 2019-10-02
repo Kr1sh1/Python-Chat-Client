@@ -8,6 +8,7 @@ import threading
 import rsa
 import pickle
 import multiprocessing
+import ast
 from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
@@ -18,6 +19,7 @@ from main_window import Ui_MainWindow as Window2
 class RSACrypt():
     def __init__(self):
         number_of_cpu_cores = multiprocessing.cpu_count()
+        if number_of_cpu_cores > 2: number_of_cpu_cores -= 2
         (self.__public_key , self.__private_key) = rsa.newkeys(4096, poolsize=number_of_cpu_cores)
 
     def get_public_key(self):
@@ -441,6 +443,12 @@ def send_message(selected_user, message):
         print(f"Exception :{e}")
 
 #TODO
+#Implement verification of message to ensure the sender isn't lying about their identity
+
+#TODO
+#Test eval replacement ast.literal_eval is functioning correctly
+
+#TODO
 #Fix colour of text appearing in message box
 def receive_messages():
     PORT = 40001
@@ -458,7 +466,15 @@ def receive_messages():
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit = 1)
-            encrypted_data = eval(data[1])[0]
+            #Previously I was using eval to turn a string representation of a list into a list
+            #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
+            #So I found an alternative, ast.literal_eval
+            #ast.literal_eval is incapable of operating on anything but python data types
+            #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
+            try:
+                encrypted_data = ast.literal_eval(data[1])[0]
+            except Exception as e:
+                print(f"Exception: {e}\n Possible corrupted message or injection attempt")
             decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
             username = decrypted_data.split(",")[0]
             message = "<font color = 'blue'>" + ",".join(decrypted_data.split(",")[1:]) + "</color>"
@@ -505,6 +521,9 @@ def broadcast_self(username):
         print("Broadcasting...")
         sleep(2)
 
+#TODO
+#Test eval replacement ast.literal_eval is functioning correctly
+
 #This function detects broadcasts on port 40000 made by other instances of this program.
 def detect_other_clients():
     PORT = 40000
@@ -523,7 +542,10 @@ def detect_other_clients():
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit=2)
             username = data[1]
-            PUBLIC_KEY = pickle.loads(eval(data[2])[0])
+            try:
+                PUBLIC_KEY = pickle.loads(ast.literal_eval(data[2])[0])
+            except Exception as e:
+                print(f"Exception: {e}\n Possible corrupted broadcast or injection attempt")
             print(f"got service announcement from: {username}")
             update_online_clients([addr[0], username, PUBLIC_KEY])
 

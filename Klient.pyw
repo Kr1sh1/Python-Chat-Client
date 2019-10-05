@@ -281,7 +281,8 @@ class LoginWindow(QMainWindow, Window1):
                                           "border-color: blue"
                                           "}")
 
-
+#TODO
+#Make updated stylesheets for dynamically created objects
 class MainWindow(QMainWindow, Window2):
     def __init__(self):
         super(MainWindow, self).__init__()

@@ -19,7 +19,14 @@ from main_window import Ui_MainWindow as Window2
 class RSACrypt():
     def __init__(self):
         number_of_cpu_cores = multiprocessing.cpu_count()
-        if number_of_cpu_cores > 2: number_of_cpu_cores -= 2
+
+        if number_of_cpu_cores >= 8:
+            number_of_cpu_cores = 4
+        elif number_of_cpu_cores >= 4:
+            number_of_cpu_cores = 2
+        else:
+            number_of_cpu_cores = 1
+
         (self.__public_key , self.__private_key) = rsa.newkeys(4096, poolsize=number_of_cpu_cores)
 
     def get_public_key(self):
@@ -384,13 +391,13 @@ class MainWindow(QMainWindow, Window2):
         return pushButton
 
     def message_entered(self, text_entry, selected_user, message_box):
-        message = "<font color = 'white'>" + text_entry.toPlainText() + "</color>"
+        message = text_entry.toPlainText()
         text_entry.clear()
-        message_box.append(message)
 
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
-
+        message = "<font color = 'green'>" + message + "</green>"
+        message_box.append(message)
 
 class ControllerClass():
     def __init__(self):
@@ -449,7 +456,7 @@ def send_message(selected_user, message):
 #TODO
 #Test eval replacement ast.literal_eval is functioning correctly
 
-#TODO
+#T0D0-FIXED#
 #Fix colour of text appearing in message box
 def receive_messages():
     PORT = 40001

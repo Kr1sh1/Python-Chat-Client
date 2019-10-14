@@ -303,6 +303,9 @@ class MainWindow(QMainWindow, Window2):
         self.listWidget.itemDoubleClicked.connect(self.item_changed)
 
         self.tabs = {}
+
+    #Function called when item is double clicked in list
+    #Tab is changed to user clicked, unless they're already selected
     def item_changed(self, item):
         selected_user = item.text()
         tab_count = self.tabWidget.count()
@@ -315,6 +318,7 @@ class MainWindow(QMainWindow, Window2):
 
         self.create_tab(selected_user, tab_count)
 
+    #Creates a new tab for each new user
     def create_tab(self, selected_user, tab_count):
         tab_object_name = "object " + str(self.tabWidget.count())
         tab = QWidget()
@@ -340,7 +344,10 @@ class MainWindow(QMainWindow, Window2):
         self.tabWidget.addTab(tab, selected_user)
         self.tabWidget.setCurrentIndex(tab_count)
 
+        #Saving message_box object in a dictionary so we can access it later
         self.tabs[selected_user] = message_box
+
+    #This created a message box where messages appear when sent or received
     def create_messagebox(self, tab):
         verticalLayout_2 = QtWidgets.QVBoxLayout()
         verticalLayout_2.setObjectName("verticalLayout_2")
@@ -355,6 +362,7 @@ class MainWindow(QMainWindow, Window2):
         verticalLayout_2.addWidget(text_edit)
         return text_edit, verticalLayout_2
 
+    #This creates a text edit box where you type messages to send
     def create_text_edit_box(self, tab):
         horizontalLayout_2 = QtWidgets.QHBoxLayout()
         horizontalLayout_2.setObjectName("horizontalLayout_2")
@@ -369,6 +377,7 @@ class MainWindow(QMainWindow, Window2):
         horizontalLayout_2.addWidget(plainTextEdit)
         return plainTextEdit, horizontalLayout_2
 
+    #This created an enter button that sends the message you type in the text edit box
     def create_enter_button(self, tab, horizontalLayout_2):
         pushButton = QPushButton(tab)
         pushButton.setStyleSheet("QPushButton {"
@@ -390,6 +399,7 @@ class MainWindow(QMainWindow, Window2):
         pushButton.setText("SND \n MSG")
         return pushButton
 
+    #Adds message to message box and calls function to send message
     def message_entered(self, text_entry, selected_user, message_box):
         message = text_entry.toPlainText()
         text_entry.clear()
@@ -399,6 +409,7 @@ class MainWindow(QMainWindow, Window2):
         message = "<font color = 'green'>" + message + "</green>"
         message_box.append(message)
 
+#Controls several things, such as which windows appear when and when to start multiple threads
 class ControllerClass():
     def __init__(self):
         self.login()
@@ -407,10 +418,15 @@ class ControllerClass():
         self.WINDOW1 = LoginWindow()
 
     def mainWindow(self):
-        global dict_list_items
+        global dict_list_items, sock
         dict_list_items = {}
         self.username = self.WINDOW1.get_username()
         self.WINDOW1.close()
+
+        #Opens a socket that's used to send and receive messages on a specified port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind((socket.getfqdn(), 8000))
 
         #Running the broadcast function in a separate thread so the main program can continue
         #This thread is a "daemon", so when the main program thread is killed this thread will also be killed.
@@ -438,15 +454,15 @@ def exit_program():
 #TODO
 #Don't attempt to send messages if the user went offline
 def send_message(selected_user, message):
-    PORT = 40001
+    PORT = 8001
     MAGIC_PASS = "iJ9d2J,"
     message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
     PUBLIC_KEY = clients_online.get(selected_user_ip)[2]
     encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY)]), encoding="utf8")
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.sendto(encrypted_message, (selected_user_ip, PORT))
+        sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
     except Exception as e:
         print(f"Exception :{e}")
 
@@ -459,21 +475,22 @@ def send_message(selected_user, message):
 #T0D0-FIXED#
 #Fix colour of text appearing in message box
 def receive_messages():
-    PORT = 40001
+    PORT = 8001
     MAGIC_PASS = "iJ9d2J"
-    IP_ADDRESS = socket.gethostbyname(socket.getfqdn())
+    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('', PORT))
+    receiving_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiving_sock.bind(('', PORT))
 
     while 1:
-        data, addr = sock.recvfrom(2048)
+        data, addr = receiving_sock.recvfrom(2048)
         #print(f"Recieved some data, not sure if relevant: {data}{addr}")
         print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit = 1)
+
             #Previously I was using eval to turn a string representation of a list into a list
             #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
             #So I found an alternative, ast.literal_eval
@@ -505,23 +522,20 @@ def hash_password(password, salt=None):
     hashed_password = hashlib.pbkdf2_hmac("sha256", password_bytes, salt, 200000)
     return hashed_password, salt
 
-#This function announces itself on the local network to anyone listening on port 40000
+#This function announces itself on the local network to anyone listening on port 8000
 #This allows us and other clients to see who's online.
 def broadcast_self(username):
-    PORT = 40000
+    PORT = 8000
     USERNAME = username + ","
 
     #Other users on the network need this key to encrypt their messages and send them to you
     PUBLIC_KEY = RSA_ENCRYPTION.get_public_key()
 
-    #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 40000
+    #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 8000
     #When detecting broadcasts, we can check if the MAGIC_PASS value is at the beginning, so we know that the message is meant for us
     MAGIC_PASS = "o8H1s7,"
+    #pickling python objects turns them into byte streams, allowing us to send them over the network
     MESSAGE = bytes(str(MAGIC_PASS + USERNAME) + str([pickle.dumps(PUBLIC_KEY)]), encoding="utf8")
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('', 0))
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     #Broadcast the message every 2 seconds
     while True:
@@ -532,14 +546,14 @@ def broadcast_self(username):
 #TODO
 #Test eval replacement ast.literal_eval is functioning correctly
 
-#This function detects broadcasts on port 40000 made by other instances of this program.
+#This function detects broadcasts on port 8000 made by other instances of this program.
 def detect_other_clients():
-    PORT = 40000
     MAGIC_PASS = "o8H1s7"
-    IP_ADDRESS = socket.gethostbyname(socket.getfqdn())
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('', PORT))
+    HOST_NAME = socket.gethostname()
+    HOST_FQDN = socket.getfqdn()
+    IP_ADDRESS = socket.gethostbyname(HOST_NAME)
+    IP_FQDN = socket.gethostbyname(HOST_FQDN)
+    y = 0
 
     while 1:
         data, addr = sock.recvfrom(4096)
@@ -610,11 +624,17 @@ def update_online_clients_list(client_data, action):
         dict_list_items[client_data[1] + " " + client_data[0]] = item
         y = 0
 
-if __name__ == '__main__':
+def main():
+    global RSA_ENCRYPTION
+    global APP
+    global CONTROLLER
     print("Generating keys for asymmetric encryption...")
     RSA_ENCRYPTION = RSACrypt()
     print("Keys generated")
     APP = QApplication(sys.argv)
     CONTROLLER = ControllerClass()
     sys.exit(APP.exec_())
+
+if __name__ == '__main__':
+    main()
     

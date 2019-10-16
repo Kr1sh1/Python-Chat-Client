@@ -9,6 +9,8 @@ import rsa
 import pickle
 import multiprocessing
 import ast
+import base64
+from cryptography.fernet import Fernet
 from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
@@ -18,19 +20,27 @@ from main_window import Ui_MainWindow as Window2
 
 class RSACrypt():
     def __init__(self):
-        number_of_cpu_cores = multiprocessing.cpu_count()
+        self.number_of_cpu_cores = multiprocessing.cpu_count()
 
-        if number_of_cpu_cores >= 8:
-            number_of_cpu_cores = 4
-        elif number_of_cpu_cores >= 4:
-            number_of_cpu_cores = 2
+        if self.number_of_cpu_cores >= 8:
+            self.number_of_cpu_cores = 4
+        elif self.number_of_cpu_cores >= 4:
+            self.number_of_cpu_cores = 2
         else:
-            number_of_cpu_cores = 1
-
-        (self.__public_key , self.__private_key) = rsa.newkeys(4096, poolsize=number_of_cpu_cores)
+            self.number_of_cpu_cores = 1
+        
+        self.__public_key , self.__private_key = None, None
 
     def get_public_key(self):
         return self.__public_key
+
+    def update_keys(self, public_key, private_key):
+        self.__public_key , self.__private_key = public_key, private_key
+
+    def generate_new_keys(self):
+        self.__public_key , self.__private_key = rsa.newkeys(4096, poolsize=self.number_of_cpu_cores)
+        return self.__public_key , self.__private_key
+
     def encrypt_message(self, message, pub_key):
         message_bytes = message.encode("utf8")
         encrypt_message = rsa.encrypt(message_bytes, pub_key)
@@ -126,10 +136,8 @@ class LoginWindow(QMainWindow, Window1):
 
         connection.close()
         self.username = username
+        self.password = password
         CONTROLLER.mainWindow()
-
-    def get_username(self):
-        return self.username
 
     #Executed when register button pressed
     def register(self):
@@ -167,18 +175,18 @@ class LoginWindow(QMainWindow, Window1):
         hashed_password, salt = hash_password(password)
 
         try:
-            cursor.execute("""INSERT INTO users
+            cursor.execute("""INSERT INTO users (username, passwordHash, salt)
                          VALUES (?,?,?)""", (username, hashed_password, salt))
         except sqlite3.DatabaseError:
             cursor.execute("""CREATE TABLE users
-                         (username text, passwordHash text, salt text)""")
+                         (username text, passwordHash text, salt text, public_key text, encrypted_private_key text, salt_2 text)""")
 
-            cursor.execute("""INSERT INTO users
+            cursor.execute("""INSERT INTO users (username, passwordHash, salt)
                          VALUES (?,?,?)""", (username, hashed_password, salt))
 
         connection.commit()
         connection.close()
-
+        self.password = password
         #Updating message box in the GUI
         self.InformationLabel.setText("Registration complete!")
         self.InformationLabel.setStyleSheet('color: green')
@@ -409,6 +417,7 @@ class MainWindow(QMainWindow, Window2):
         message = "<font color = 'green'>" + message + "</green>"
         message_box.append(message)
 
+#TODO - InformationLabel won't update correctly, maybe try and fix (low priority)
 #Controls several things, such as which windows appear when and when to start multiple threads
 class ControllerClass():
     def __init__(self):
@@ -418,9 +427,25 @@ class ControllerClass():
         self.WINDOW1 = LoginWindow()
 
     def mainWindow(self):
-        global dict_list_items, sock
+        global dict_list_items
+        global sock
+        global RSA_ENCRYPTION
+
         dict_list_items = {}
-        self.username = self.WINDOW1.get_username()
+        self.username = self.WINDOW1.username
+
+        RSA_ENCRYPTION = RSACrypt()
+
+        keys = check_rsa_keys_available()
+        if keys[0] == False:
+            self.WINDOW1.InformationLabel.setText("Generating RSA keys...")
+            self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
+            __public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
+            save_rsa_keys(__public_key, __private_key)
+        else:
+            self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
+            RSA_ENCRYPTION.update_keys(keys[1], keys[2])
+
         self.WINDOW1.close()
 
         #Opens a socket that's used to send and receive messages on a specified port
@@ -469,7 +494,7 @@ def send_message(selected_user, message):
 #TODO
 #Implement verification of message to ensure the sender isn't lying about their identity
 
-#TODO
+#T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
 
 #T0D0-FIXED#
@@ -543,17 +568,14 @@ def broadcast_self(username):
         print("Broadcasting...")
         sleep(2)
 
-#TODO
+#T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
 
 #This function detects broadcasts on port 8000 made by other instances of this program.
 def detect_other_clients():
     MAGIC_PASS = "o8H1s7"
     HOST_NAME = socket.gethostname()
-    HOST_FQDN = socket.getfqdn()
     IP_ADDRESS = socket.gethostbyname(HOST_NAME)
-    IP_FQDN = socket.gethostbyname(HOST_FQDN)
-    y = 0
 
     while 1:
         data, addr = sock.recvfrom(4096)
@@ -609,28 +631,69 @@ def update_online_clients(client_data):
     update_online_clients_list(client_data, "add")
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
-#TODO
-#Make sure new implementation is working
+#T0D0-FIXED#
+#Make sure new implementation of saving item objects in dictionary is working
 #Updating the list users click on in the GUI
 def update_online_clients_list(client_data, action):
     global dict_list_items
     if action == "rm":
         item = dict_list_items.get(client_data[1] + " " + client_data[0])
         CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item))
-        y = 0
     else:
         item = QListWidgetItem(client_data[1] + " " + str(client_data[0]))
         CONTROLLER.WINDOW2.listWidget.addItem(item)
         dict_list_items[client_data[1] + " " + client_data[0]] = item
-        y = 0
+
+#T0D0 DONE
+#Check if keys are available in database
+#Decrypt them if available
+#Return list [True/False, PublicKey/None, PrivateKey/None]
+def check_rsa_keys_available():
+    connection = sqlite3.connect("User-details.db")
+    cursor = connection.cursor()
+    cursor.execute("""SELECT public_key, encrypted_private_key, salt_2 FROM users WHERE username=?""",(CONTROLLER.username,))
+    public_key, encrypted_private_key, salt = cursor.fetchone()
+    if salt is None:
+        return [False, None, None]
+    private_key = decrypt_key(encrypted_private_key, salt)
+    public_key = pickle.loads(public_key)
+    return [True, public_key, private_key]
+
+#T0D0 - Test decryption of RSA keys DONE
+#Decrypt keys
+def decrypt_key(encrypted_private_key, salt):
+    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.WINDOW1.password, encoding="utf-8"), salt, 100000, dklen=32))
+    f = Fernet(AES_KEY)
+    private_key = pickle.loads(f.decrypt(encrypted_private_key))
+    return private_key
+
+#T0D0 - RSA keys encryption needs to be tested DONE
+#Encrypt keys
+def encrypt_key(private_key):
+    salt = os.urandom(16)
+    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.WINDOW1.password, encoding="utf-8"), salt, 100000, dklen=32))
+    f = Fernet(AES_KEY)
+    bytes_priv_key = pickle.dumps(private_key)
+    encrypted_private_key = f.encrypt(bytes_priv_key)
+    return encrypted_private_key, salt
+
+#T0D0 - Saving encrypted RSA keys to database needs to be tested DONE
+#Save keys to database
+#columns public_key and private_key
+def save_rsa_keys(public_key, private_key):
+    encrypted_private_key, salt = encrypt_key(private_key)
+    bytes_pub_key = pickle.dumps(public_key)
+    connection = sqlite3.connect("User-details.db")
+    cursor = connection.cursor()
+    cursor.execute("UPDATE users SET public_key=?, encrypted_private_key=?, salt_2=? WHERE username=?", (bytes_pub_key, encrypted_private_key, salt, CONTROLLER.username))
+    connection.commit()
+    connection.close()
 
 def main():
     global RSA_ENCRYPTION
     global APP
     global CONTROLLER
-    print("Generating keys for asymmetric encryption...")
-    RSA_ENCRYPTION = RSACrypt()
-    print("Keys generated")
+
     APP = QApplication(sys.argv)
     CONTROLLER = ControllerClass()
     sys.exit(APP.exec_())

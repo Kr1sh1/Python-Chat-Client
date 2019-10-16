@@ -52,8 +52,7 @@ class RSACrypt():
         return decrypt_message
 
 
-#TODO
-#Make commas illegal characters in a username
+#TODO - Make commas illegal characters in a username
 #Main class for the login window
 class LoginWindow(QMainWindow, Window1):
 
@@ -296,8 +295,7 @@ class LoginWindow(QMainWindow, Window1):
                                           "border-color: blue"
                                           "}")
 
-#TODO
-#Make updated stylesheets for dynamically created objects
+#TODO - Update stylesheets to better color scheme for dynamically created objects
 class MainWindow(QMainWindow, Window2):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -472,12 +470,11 @@ class ControllerClass():
 def exit_program():
     sys.exit()
 
-#TODO
-#Messages are limited to 501 bytes with current implementation
-#Probably should do something about that
+#TODO - Messages are limited to 501 bytes with current implementation
+#Probably should do something about that. Possible fix is exchanging AES keys through RSA, then using those to encrypt and decrypt data
+#As there is no max to amount of data when encrypting
 
-#TODO
-#Don't attempt to send messages if the user went offline
+#TODO - Don't attempt to send messages if the user went offline
 def send_message(selected_user, message):
     PORT = 8001
     MAGIC_PASS = "iJ9d2J,"
@@ -491,8 +488,7 @@ def send_message(selected_user, message):
     except Exception as e:
         print(f"Exception :{e}")
 
-#TODO
-#Implement verification of message to ensure the sender isn't lying about their identity
+#TODO - Implement verification of message to ensure the sender isn't lying about their identity
 
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
@@ -651,7 +647,10 @@ def update_online_clients_list(client_data, action):
 def check_rsa_keys_available():
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
-    cursor.execute("""SELECT public_key, encrypted_private_key, salt_2 FROM users WHERE username=?""",(CONTROLLER.username,))
+    cursor.execute("""SELECT public_key, encrypted_private_key, salt_2 
+                      FROM users 
+                      WHERE username=?""",
+                      (CONTROLLER.username,))
     public_key, encrypted_private_key, salt = cursor.fetchone()
     if salt is None:
         return [False, None, None]
@@ -685,7 +684,10 @@ def save_rsa_keys(public_key, private_key):
     bytes_pub_key = pickle.dumps(public_key)
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
-    cursor.execute("UPDATE users SET public_key=?, encrypted_private_key=?, salt_2=? WHERE username=?", (bytes_pub_key, encrypted_private_key, salt, CONTROLLER.username))
+    cursor.execute("""UPDATE users 
+                    SET public_key=?, encrypted_private_key=?, salt_2=? 
+                    WHERE username=?""", (
+                    bytes_pub_key, encrypted_private_key, salt, CONTROLLER.username))
     connection.commit()
     connection.close()
 

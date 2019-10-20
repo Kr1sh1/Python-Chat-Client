@@ -412,7 +412,7 @@ class MainWindow(QMainWindow, Window2):
 
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
-        message = "<font color = 'green'>" + message + "</green>"
+        message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
         message_box.append(message)
 
 #TODO - InformationLabel won't update correctly, maybe try and fix (low priority)
@@ -521,9 +521,11 @@ def receive_messages():
                 encrypted_data = ast.literal_eval(data[1])[0]
             except Exception as e:
                 print(f"Exception: {e}\n Possible corrupted message or injection attempt")
+            
             decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
-            username = decrypted_data.split(",")[0]
-            message = "<font color = 'blue'>" + ",".join(decrypted_data.split(",")[1:]) + "</color>"
+            decrypted_data = decrypted_data.split(",", maxsplit=1)
+            username = decrypted_data[0]
+            message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
             selected_user = username + " " + addr[0]
             tab = CONTROLLER.WINDOW2.tabs
             message_box = tab.get(selected_user)

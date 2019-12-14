@@ -15,11 +15,13 @@ from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
 from PyQt5 import QtCore, QtWidgets
-from login_window import Ui_MainWindow as Window1
-from main_window import Ui_MainWindow as Window2
+from login_window import Ui_MainWindow as login_window
+from main_window import Ui_MainWindow as main_window
 
+#The RSACrypt class provides in a simple interface the methods to encrypt or decrypt messages using the RSA algorithm
 class RSACrypt():
     def __init__(self):
+        #The key generation process can take a while, taking advantage of multiple cores in the system will speed it up
         self.number_of_cpu_cores = multiprocessing.cpu_count()
 
         if self.number_of_cpu_cores >= 8:
@@ -34,33 +36,39 @@ class RSACrypt():
     def get_public_key(self):
         return self.__public_key
 
+    def get_private_key(self):
+        return self.__private_key
+
+    #Updates private and public key of this user
     def update_keys(self, public_key, private_key):
         self.__public_key , self.__private_key = public_key, private_key
 
+    #Generates a new pair of public and private keys
     def generate_new_keys(self):
         self.__public_key , self.__private_key = rsa.newkeys(4096, poolsize=self.number_of_cpu_cores)
         return self.__public_key , self.__private_key
 
+    #Encrypts message using public key of receiever
     def encrypt_message(self, message, pub_key):
         message_bytes = message.encode("utf8")
-        encrypt_message = rsa.encrypt(message_bytes, pub_key)
-        return encrypt_message
+        encrypted_message = rsa.encrypt(message_bytes, pub_key)
+        return encrypted_message
 
-    def decrypt_message(self, encrypt_message):
-        decrypt_message_bytes = rsa.decrypt(encrypt_message, self.__private_key)
-        decrypt_message = decrypt_message_bytes.decode("utf8")
-        return decrypt_message
+    #Decrypts message using this user's private key
+    def decrypt_message(self, encrypted_message):
+        decrypted_message_bytes = rsa.decrypt(encrypted_message, self.__private_key)
+        decrypted_message = decrypted_message_bytes.decode("utf8")
+        return decrypted_message
 
 
-#TODO - Make commas illegal characters in a username
+#T0D0 - Make commas illegal characters in a username DONE + other characters
 #Main class for the login window
-class LoginWindow(QMainWindow, Window1):
+class LoginWindow(QMainWindow, login_window):
 
     def __init__(self):
         super(LoginWindow, self).__init__()
 
-        #Uncheck next comment to enable borderless mode. Also import QtCore from PyQt5
-        #self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
+        #Initialises the GUI
         self.setupUi(self)
         self.show()
 
@@ -71,6 +79,30 @@ class LoginWindow(QMainWindow, Window1):
         self.actionDark_Mode.triggered.connect(self.enable_dark_mode)
         self.actionLight_Mode.triggered.connect(self.enable_light_mode)
 
+    #This function checks if the username and password entered are suitable
+    def input_checks(self, username, password):
+        #List of characters not allowed in username
+        illegal_characters = [" ", ",", "\"", "\'", "\\", "/"]
+
+        #Returns true when an illegal character was detected
+        iterable = [True for x in illegal_characters if x in username]
+
+        if username == "" or password == "":
+            #Updating message box in the GUI
+            self.InformationLabel.setText("Values must be entered for both fields")
+            self.InformationLabel.setStyleSheet('color: red')
+            print("Values must be entered for both fields")
+            return True
+
+        #If any illegal characters are in the username, then this will return True
+        if any(iterable):
+            self.InformationLabel.setText("Illegal characters in username. No spaces, commas or speech marks are permitted")
+            self.InformationLabel.setStyleSheet('color: red')
+            print("Illegal characters in username")
+            return True
+
+        return False
+
     #Executed when login button pressed
     def login(self):
 
@@ -78,11 +110,8 @@ class LoginWindow(QMainWindow, Window1):
         username = self.UsernameLine.text()
         password = self.PasswordLine.text()
 
-        if username == "" or password == "":
-            #Updating message box in the GUI
-            self.InformationLabel.setText("Values must be entered for both fields")
-            self.InformationLabel.setStyleSheet('color: red')
-            print("Values must be entered for both fields")
+        #Evaluates to True when input check fails
+        if self.input_checks(username, password):
             return
 
         #Establishing a connection with the database in the file "User-details.db"
@@ -96,7 +125,7 @@ class LoginWindow(QMainWindow, Window1):
                          WHERE username=?""", (username,))
 
             #Error thrown when database doesn't exist.
-        except sqlite3.OperationalError:
+        except sqlite3.DatabaseError:
             #Updating message box in the GUI
             self.InformationLabel.setText("Database file missing or empty. Make a new account.")
             self.InformationLabel.setStyleSheet('color: red')
@@ -140,15 +169,10 @@ class LoginWindow(QMainWindow, Window1):
 
     #Executed when register button pressed
     def register(self):
-
         username = self.UsernameLine.text()
         password = self.PasswordLine.text()
 
-        if username == "" or password == "":
-            #Updating message box in the GUI
-            self.InformationLabel.setText("Values must be entered for both fields")
-            self.InformationLabel.setStyleSheet('color: red')
-            print("Values must be entered for both fields")
+        if self.input_checks(username, password):
             return
 
         connection = sqlite3.connect("User-details.db")
@@ -169,31 +193,24 @@ class LoginWindow(QMainWindow, Window1):
 
                 return
         except sqlite3.DatabaseError:
-            pass
-
-        hashed_password, salt = hash_password(password)
-
-        try:
-            cursor.execute("""INSERT INTO users (username, passwordHash, salt)
-                         VALUES (?,?,?)""", (username, hashed_password, salt))
-        except sqlite3.DatabaseError:
             cursor.execute("""CREATE TABLE users
                          (username text, passwordHash text, salt text, public_key text, encrypted_private_key text, salt_2 text)""")
 
-            cursor.execute("""INSERT INTO users (username, passwordHash, salt)
-                         VALUES (?,?,?)""", (username, hashed_password, salt))
+        hashed_password, salt = hash_password(password)
+
+        cursor.execute("""INSERT INTO users (username, passwordHash, salt)
+                        VALUES (?,?,?)""", (username, hashed_password, salt))
 
         connection.commit()
         connection.close()
-        self.password = password
         #Updating message box in the GUI
         self.InformationLabel.setText("Registration complete!")
         self.InformationLabel.setStyleSheet('color: green')
         print("registration complete!")
 
     #Executed when dark mode button pressed
+    #Updates stylesheets of GUI objects
     def enable_dark_mode(self):
-
         self.centralwidget.setStyleSheet("background: '#212121'")
         self.menubar.setStyleSheet("QMenuBar {"
                                    "color: white;"
@@ -255,8 +272,8 @@ class LoginWindow(QMainWindow, Window1):
                                           "}")
 
     #Executed when light mode button pressed
+    #Updates stylesheets of GUI objects
     def enable_light_mode(self):
-
         self.centralwidget.setStyleSheet("background: #F0F0F0")
         self.menubar.setStyleSheet("QMenuBar {"
                                    "color: black;"
@@ -295,11 +312,14 @@ class LoginWindow(QMainWindow, Window1):
                                           "border-color: blue"
                                           "}")
 
-#TODO - Update stylesheets to better color scheme for dynamically created objects
-class MainWindow(QMainWindow, Window2):
+#T0D0 - Create stacks for history feature - DONE TEST PROPERLY
+
+#T0D0 - Update stylesheets to better color scheme for dynamically created objects DONE
+class MainWindow(QMainWindow, main_window):
     def __init__(self):
         super(MainWindow, self).__init__()
 
+        #Initialises the GUI
         self.setupUi(self)
         self.show()
         self.USER = CONTROLLER.username
@@ -308,7 +328,40 @@ class MainWindow(QMainWindow, Window2):
         self.actionExit.triggered.connect(exit_program)
         self.listWidget.itemDoubleClicked.connect(self.item_changed)
 
+        #This dictionary is used to keep track of dynamically generated objects
         self.tabs = {}
+
+        #Pressing pg up or dn will retrieve messages sent, similar to the way command history works in terminals
+        self.stack_up = []
+        self.stack_down = []
+
+    #This function manages the up and down message history stack
+    #You go up the history by pressing CTRL - PGUP, and CTRL - PGDN to go down
+    def keyPressEvent(self, event):
+        #CTRL- PG UP event
+        if event.key() == 16777238:
+            focus = QApplication.focusObject()
+            if "QPlainTextEdit" in str(focus):
+                print(focus)
+                if len(self.stack_up) != 0:
+                    selected_user = self.tabWidget.tabText(self.tabWidget.currentIndex())
+                    latest_message = self.stack_up.pop()
+                    text_entry = self.tabs.get(selected_user)[1]
+                    previous_message = text_entry.toPlainText()
+                    self.stack_down.append(previous_message)
+                    focus.setPlainText(latest_message)
+
+        #CTRL - PG DOWN event
+        elif event.key() == 16777239:
+            focus = QApplication.focusObject()
+            if "QPlainTextEdit" in str(focus):
+                if len(self.stack_down) != 0:
+                    latest_message = self.stack_down.pop()
+                    selected_user = self.tabWidget.tabText(self.tabWidget.currentIndex())
+                    text_entry = self.tabs.get(selected_user)[1]
+                    previous_message = text_entry.toPlainText()
+                    self.stack_up.append(previous_message)
+                    focus.setPlainText(latest_message)
 
     #Function called when item is double clicked in list
     #Tab is changed to user clicked, unless they're already selected
@@ -325,6 +378,7 @@ class MainWindow(QMainWindow, Window2):
         self.create_tab(selected_user, tab_count)
 
     #Creates a new tab for each new user
+    #GUI generation
     def create_tab(self, selected_user, tab_count):
         tab_object_name = "object " + str(self.tabWidget.count())
         tab = QWidget()
@@ -350,8 +404,8 @@ class MainWindow(QMainWindow, Window2):
         self.tabWidget.addTab(tab, selected_user)
         self.tabWidget.setCurrentIndex(tab_count)
 
-        #Saving message_box object in a dictionary so we can access it later
-        self.tabs[selected_user] = message_box
+        #Saving dynamically generated object in a dictionary so we can access it later
+        self.tabs[selected_user] = (message_box, text_entry)
 
     #This created a message box where messages appear when sent or received
     def create_messagebox(self, tab):
@@ -410,6 +464,10 @@ class MainWindow(QMainWindow, Window2):
         message = text_entry.toPlainText()
         text_entry.clear()
 
+        #Handles putting messages in the stack
+        if len(self.stack_up) == 0 or self.stack_up[-1] != message:
+            self.stack_up.append(message)
+
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
         message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
@@ -417,7 +475,7 @@ class MainWindow(QMainWindow, Window2):
 
 #TODO - InformationLabel won't update correctly, maybe try and fix (low priority)
 #Controls several things, such as which windows appear when and when to start multiple threads
-class ControllerClass():
+class WindowController():
     def __init__(self):
         self.login()
 
@@ -434,6 +492,7 @@ class ControllerClass():
 
         RSA_ENCRYPTION = RSACrypt()
 
+        #Checks if keys are available in database and updates them in RSACrypt class, else generates new keys
         keys = check_rsa_keys_available()
         if keys[0] == False:
             self.WINDOW1.InformationLabel.setText("Generating RSA keys...")
@@ -451,7 +510,7 @@ class ControllerClass():
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.bind((socket.getfqdn(), 8000))
 
-        #Running the broadcast function in a separate thread so the main program can continue
+        #Runnings these functions in their own threads as they need to be running constantly and shouldn't be blocked by other code
         #This thread is a "daemon", so when the main program thread is killed this thread will also be killed.
         #This makes sure no threads are left alive accidentally is the program is force closed.
         t1 = threading.Thread(target=broadcast_self, args=(self.username,), daemon=True)
@@ -472,23 +531,26 @@ def exit_program():
 
 #TODO - Messages are limited to 501 bytes with current implementation
 #Probably should do something about that. Possible fix is exchanging AES keys through RSA, then using those to encrypt and decrypt data
-#As there is no max to amount of data when encrypting
+#As there is no max to amount of data when encrypting with AES
 
 #TODO - Don't attempt to send messages if the user went offline
 def send_message(selected_user, message):
     PORT = 8001
     MAGIC_PASS = "iJ9d2J,"
+    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
+    USER = bytes(CONTROLLER.username + " " + IP_ADDRESS, encoding="utf-8")
     message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
     PUBLIC_KEY = clients_online.get(selected_user_ip)[2]
-    encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY)]), encoding="utf8")
+    RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
+    encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
     try:
         sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
     except Exception as e:
         print(f"Exception :{e}")
 
-#TODO - Implement verification of message to ensure the sender isn't lying about their identity
+#TODO - Implement verification of message to ensure the sender isn't lying about their identity - DONE NEEDS TESTING
 
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
@@ -503,14 +565,14 @@ def receive_messages():
     receiving_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiving_sock.bind(('', PORT))
 
-    while 1:
-        data, addr = receiving_sock.recvfrom(2048)
+    while True:
+        data, addr = receiving_sock.recvfrom(4096)
         #print(f"Recieved some data, not sure if relevant: {data}{addr}")
         print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
-            data = data.decode("utf-8").split(",", maxsplit = 1)
+            data = data.decode("utf-8").split(",", maxsplit=1)
 
             #Previously I was using eval to turn a string representation of a list into a list
             #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
@@ -519,6 +581,7 @@ def receive_messages():
             #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
             try:
                 encrypted_data = ast.literal_eval(data[1])[0]
+                signature = ast.literal_eval(data[1])[1]
             except Exception as e:
                 print(f"Exception: {e}\n Possible corrupted message or injection attempt")
             
@@ -527,9 +590,19 @@ def receive_messages():
             username = decrypted_data[0]
             message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
             selected_user = username + " " + addr[0]
+
+            user_pub_key = clients_online.get(addr[0])[2]
+            if rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
+                print("Message verified")
+            else:
+                print("Received possibly tampered message")
+                return
+
             tab = CONTROLLER.WINDOW2.tabs
-            message_box = tab.get(selected_user)
+            message_box = tab.get(selected_user)[0]
             message_box.append(message)
+
+    return
 
 #Function to hash password
 
@@ -566,6 +639,8 @@ def broadcast_self(username):
         print("Broadcasting...")
         sleep(2)
 
+    return
+
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
 
@@ -575,7 +650,7 @@ def detect_other_clients():
     HOST_NAME = socket.gethostname()
     IP_ADDRESS = socket.gethostbyname(HOST_NAME)
 
-    while 1:
+    while True:
         data, addr = sock.recvfrom(4096)
         #print(f"Recieved some data, not sure if compatible: {data}{addr}")
         print(IP_ADDRESS)
@@ -606,7 +681,7 @@ def remove_offline_clients():
             if (time()-value[0]) > 4:
                 clients_online.pop(key)
                 client_data = [key, value[1]]
-                update_online_clients_list(client_data, "rm")
+                remove_client_from_online_list(client_data)
                 CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
         sleep(1)
@@ -626,21 +701,22 @@ def update_online_clients(client_data):
 
     #Adding client to dictionary
     clients_online[client_data[0]] = [time(), client_data[1], client_data[2]]
-    update_online_clients_list(client_data, "add")
+    add_client_to_online_list(client_data)
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
 #T0D0-FIXED#
 #Make sure new implementation of saving item objects in dictionary is working
 #Updating the list users click on in the GUI
-def update_online_clients_list(client_data, action):
+def remove_client_from_online_list(client_data):
     global dict_list_items
-    if action == "rm":
-        item = dict_list_items.get(client_data[1] + " " + client_data[0])
-        CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item))
-    else:
-        item = QListWidgetItem(client_data[1] + " " + str(client_data[0]))
-        CONTROLLER.WINDOW2.listWidget.addItem(item)
-        dict_list_items[client_data[1] + " " + client_data[0]] = item
+    item = dict_list_items.get(client_data[1] + " " + client_data[0])
+    CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item))
+
+def add_client_to_online_list(client_data):
+    global dict_list_items
+    item = QListWidgetItem(client_data[1] + " " + str(client_data[0]))
+    CONTROLLER.WINDOW2.listWidget.addItem(item)
+    dict_list_items[client_data[1] + " " + client_data[0]] = item
 
 #T0D0 DONE
 #Check if keys are available in database
@@ -694,12 +770,11 @@ def save_rsa_keys(public_key, private_key):
     connection.close()
 
 def main():
-    global RSA_ENCRYPTION
     global APP
     global CONTROLLER
 
     APP = QApplication(sys.argv)
-    CONTROLLER = ControllerClass()
+    CONTROLLER = WindowController()
     sys.exit(APP.exec_())
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ import pickle
 import multiprocessing
 import ast
 import base64
+
 from cryptography.fernet import Fernet
 from copy import deepcopy
 from time import sleep, time
@@ -30,7 +31,7 @@ class RSACrypt():
             self.number_of_cpu_cores = 2
         else:
             self.number_of_cpu_cores = 1
-        
+
         self.__public_key , self.__private_key = None, None
 
     def get_public_key(self):
@@ -60,6 +61,23 @@ class RSACrypt():
         decrypted_message = decrypted_message_bytes.decode("utf8")
         return decrypted_message
 
+class Stack():
+    def __init__(self):
+        self.items = []
+
+    def push(self, item):
+        self.items.append(item)
+
+    def pop(self):
+        #Returns and removes last item from list
+        return self.items.pop()
+
+    def is_empty(self):
+        # "not list" returns true for an empty list, false otherwise
+        return not self.items
+
+    def peek(self):
+        return self.items[-1]
 
 #T0D0 - Make commas illegal characters in a username DONE + other characters
 #Main class for the login window
@@ -94,7 +112,7 @@ class LoginWindow(QMainWindow, login_window):
             print("Values must be entered for both fields")
             return True
 
-        #If any illegal characters are in the username, then this will return True
+        #If any illegal characters are in the username, then this will return True, else False
         if any(iterable):
             self.InformationLabel.setText("Illegal characters in username. No spaces, commas or speech marks are permitted")
             self.InformationLabel.setStyleSheet('color: red')
@@ -118,40 +136,42 @@ class LoginWindow(QMainWindow, login_window):
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
 
-        try:
-            #SQL query to retrieve the salted-hashed password and the salt used
-            cursor.execute("""SELECT passwordHash, salt
-                         FROM users
-                         WHERE username=?""", (username,))
-
-            #Error thrown when database doesn't exist.
-        except sqlite3.DatabaseError:
+        if not table_exists(cursor, "users"):
             #Updating message box in the GUI
             self.InformationLabel.setText("Database file missing or empty. Make a new account.")
             self.InformationLabel.setStyleSheet('color: red')
             print("Database file missing or empty. Make a new account.")
+            connection.close()
             return
 
-        try:
-            #Retrieving results from the query just executed
-            password_hash, salt = cursor.fetchone()
-            #Type error thrown when there weren't any matches for the condition username=username
+        #SQL query to retrieve the salted-hashed password and the salt used
+        cursor.execute("""SELECT passwordHash, salt
+                        FROM users
+                        WHERE username=?""", (username,))
 
-        except TypeError:
+        #Retrieving results from the query just executed
+        payload = cursor.fetchone()
+        #Type error (because only None was returned, yet we expected two return values) thrown when there weren't any matches for the condition username=username
+
+        if payload is None:
             #Updating message box in the GUI
             self.InformationLabel.setText("Incorrect Username")
             self.InformationLabel.setStyleSheet('color: red')
             print("Incorrect username")
+            connection.close()
             return
 
+        password_hash, salt = payload[0], payload[1]
+
         #hashing the password with the retrieved salt using the method hash_password
-        hashed_password, salt = hash_password(password, salt)
+        hashed_password= hash_password(password, salt)[0]
 
         #Comparing newly hashed password to the existing hashed password in the database
         if password_hash == hashed_password:
             #Updating message box in the GUI
             self.InformationLabel.setText("Login successful")
             self.InformationLabel.setStyleSheet('color: green')
+            self.InformationLabel.repaint()
             print("login successful")
 
         else:
@@ -160,7 +180,18 @@ class LoginWindow(QMainWindow, login_window):
             self.InformationLabel.setStyleSheet('color: red')
             print("Incorrect password")
             self.PasswordLine.setText("")
+            connection.close()
             return
+
+        if not table_exists(cursor, "messages"):
+            #Table doesn't exist so we recreate it
+            cursor.execute("""CREATE TABLE messages
+                        (username TEXT,
+                        recipient TEXT,
+                        date TEXT,
+                        message TEXT)""")
+
+            connection.commit()
 
         connection.close()
         self.username = username
@@ -178,11 +209,21 @@ class LoginWindow(QMainWindow, login_window):
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
 
-        #Checking if the username is already in use by someone else
-        try:
+        if not table_exists(cursor, "users"):
+            #Table doesn't exist so we recreate it
+            cursor.execute("""CREATE TABLE users
+                        (username TEXT,
+                        passwordHash TEXT,
+                        salt TEXT,
+                        public_key TEXT,
+                        encrypted_private_key TEXT,
+                        salt_2 TEXT)""")
+
+        else:
+            #Checking if the username is already in use by someone else
             cursor.execute("""SELECT username
-                         FROM users
-                         WHERE username=?""", (username,))
+                            FROM users
+                            WHERE username=?""", (username,))
             payload = cursor.fetchone()
 
             #If the username already exists, then payload will have a value
@@ -190,11 +231,8 @@ class LoginWindow(QMainWindow, login_window):
                 self.InformationLabel.setText("Username already exists, try a different one")
                 self.InformationLabel.setStyleSheet('color: red')
                 print("Username already exists, try a different one")
-
+                connection.close()
                 return
-        except sqlite3.DatabaseError:
-            cursor.execute("""CREATE TABLE users
-                         (username text, passwordHash text, salt text, public_key text, encrypted_private_key text, salt_2 text)""")
 
         hashed_password, salt = hash_password(password)
 
@@ -332,8 +370,8 @@ class MainWindow(QMainWindow, main_window):
         self.tabs = {}
 
         #Pressing pg up or dn will retrieve messages sent, similar to the way command history works in terminals
-        self.stack_up = []
-        self.stack_down = []
+        self.stack_up = Stack()
+        self.stack_down = Stack()
 
     #This function manages the up and down message history stack
     #You go up the history by pressing CTRL - PGUP, and CTRL - PGDN to go down
@@ -343,24 +381,24 @@ class MainWindow(QMainWindow, main_window):
             focus = QApplication.focusObject()
             if "QPlainTextEdit" in str(focus):
                 print(focus)
-                if len(self.stack_up) != 0:
+                if not self.stack_up.is_empty():
                     selected_user = self.tabWidget.tabText(self.tabWidget.currentIndex())
                     latest_message = self.stack_up.pop()
                     text_entry = self.tabs.get(selected_user)[1]
                     previous_message = text_entry.toPlainText()
-                    self.stack_down.append(previous_message)
+                    self.stack_down.push(previous_message)
                     focus.setPlainText(latest_message)
 
         #CTRL - PG DOWN event
         elif event.key() == 16777239:
             focus = QApplication.focusObject()
             if "QPlainTextEdit" in str(focus):
-                if len(self.stack_down) != 0:
+                if not self.stack_down.is_empty():
                     latest_message = self.stack_down.pop()
                     selected_user = self.tabWidget.tabText(self.tabWidget.currentIndex())
                     text_entry = self.tabs.get(selected_user)[1]
                     previous_message = text_entry.toPlainText()
-                    self.stack_up.append(previous_message)
+                    self.stack_up.push(previous_message)
                     focus.setPlainText(latest_message)
 
     #Function called when item is double clicked in list
@@ -465,15 +503,15 @@ class MainWindow(QMainWindow, main_window):
         text_entry.clear()
 
         #Handles putting messages in the stack
-        if len(self.stack_up) == 0 or self.stack_up[-1] != message:
-            self.stack_up.append(message)
+        if self.stack_up.is_empty() or self.stack_up.peek() != message:
+            self.stack_up.push(message)
 
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
         message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
         message_box.append(message)
 
-#TODO - InformationLabel won't update correctly, maybe try and fix (low priority)
+#T0D0 - InformationLabel won't update correctly, maybe try and fix (low priority) - FIXED by forcing repaint of information label
 #Controls several things, such as which windows appear when and when to start multiple threads
 class WindowController():
     def __init__(self):
@@ -497,10 +535,13 @@ class WindowController():
         if keys[0] == False:
             self.WINDOW1.InformationLabel.setText("Generating RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
+            self.WINDOW1.InformationLabel.repaint()
             __public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
             save_rsa_keys(__public_key, __private_key)
         else:
             self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
+            self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
+            self.WINDOW1.InformationLabel.repaint()
             RSA_ENCRYPTION.update_keys(keys[1], keys[2])
 
         self.WINDOW1.close()
@@ -525,6 +566,19 @@ class WindowController():
         t3.start()
         t4.start()
 
+def table_exists(cursor, table_name):
+    cursor.execute("""SELECT name 
+                    FROM sqlite_master 
+                    WHERE type='table' 
+                    AND name=?""", (table_name,))
+
+    table = cursor.fetchone()
+
+    if table is None:
+        return False
+    
+    return True
+
 #Executed when exit button pressed
 def exit_program():
     sys.exit()
@@ -544,13 +598,11 @@ def send_message(selected_user, message):
     PUBLIC_KEY = clients_online.get(selected_user_ip)[2]
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
     encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
-    try:
-        sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
-    except Exception as e:
-        print(f"Exception :{e}")
 
-#TODO - Implement verification of message to ensure the sender isn't lying about their identity - DONE NEEDS TESTING
+    sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
+
+#T0D0 - Implement verification of message to ensure the sender isn't lying about their identity - DONE NEEDS TESTING
 
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
@@ -629,7 +681,7 @@ def broadcast_self(username):
 
     #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 8000
     #When detecting broadcasts, we can check if the MAGIC_PASS value is at the beginning, so we know that the message is meant for us
-    MAGIC_PASS = "o8H1s7,"
+    MAGIC_PASS = "GywBVeCg2Z,"
     #pickling python objects turns them into byte streams, allowing us to send them over the network
     MESSAGE = bytes(str(MAGIC_PASS + USERNAME) + str([pickle.dumps(PUBLIC_KEY)]), encoding="utf8")
 
@@ -639,14 +691,12 @@ def broadcast_self(username):
         print("Broadcasting...")
         sleep(2)
 
-    return
-
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
 
 #This function detects broadcasts on port 8000 made by other instances of this program.
 def detect_other_clients():
-    MAGIC_PASS = "o8H1s7"
+    MAGIC_PASS = "GywBVeCg2Z"
     HOST_NAME = socket.gethostname()
     IP_ADDRESS = socket.gethostbyname(HOST_NAME)
 

@@ -11,6 +11,7 @@ import multiprocessing
 import ast
 import base64
 
+from datetime import datetime
 from cryptography.fernet import Fernet
 from copy import deepcopy
 from time import sleep, time
@@ -187,9 +188,9 @@ class LoginWindow(QMainWindow, login_window):
             #Table doesn't exist so we recreate it
             cursor.execute("""CREATE TABLE messages
                         (username TEXT,
-                        recipient TEXT,
-                        date TEXT,
-                        message TEXT)""")
+                        otherParty TEXT,
+                        date BLOB,
+                        message BLOB)""")
 
             connection.commit()
 
@@ -213,11 +214,11 @@ class LoginWindow(QMainWindow, login_window):
             #Table doesn't exist so we recreate it
             cursor.execute("""CREATE TABLE users
                         (username TEXT,
-                        passwordHash TEXT,
-                        salt TEXT,
-                        public_key TEXT,
-                        encrypted_private_key TEXT,
-                        salt_2 TEXT)""")
+                        passwordHash BLOB,
+                        salt BLOB,
+                        public_key BLOB,
+                        encrypted_private_key BLOB,
+                        salt_2 BLOB)""")
 
         else:
             #Checking if the username is already in use by someone else
@@ -445,6 +446,8 @@ class MainWindow(QMainWindow, main_window):
         #Saving dynamically generated object in a dictionary so we can access it later
         self.tabs[selected_user] = (message_box, text_entry)
 
+        retrieve_messages(selected_user)
+
     #This created a message box where messages appear when sent or received
     def create_messagebox(self, tab):
         verticalLayout_2 = QtWidgets.QVBoxLayout()
@@ -511,6 +514,8 @@ class MainWindow(QMainWindow, main_window):
         message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
         message_box.append(message)
 
+        save_message(message, selected_user)
+
 #T0D0 - InformationLabel won't update correctly, maybe try and fix (low priority) - FIXED by forcing repaint of information label
 #Controls several things, such as which windows appear when and when to start multiple threads
 class WindowController():
@@ -527,6 +532,7 @@ class WindowController():
 
         dict_list_items = {}
         self.username = self.WINDOW1.username
+        self.password = self.WINDOW1.password
 
         RSA_ENCRYPTION = RSACrypt()
 
@@ -565,6 +571,93 @@ class WindowController():
         t2.start()
         t3.start()
         t4.start()
+
+def merge_sort(data):
+    middle = len(data) // 2
+    left = data[:middle]
+    right = data[middle:]
+
+    if len(left) != 1:
+        left = merge_sort(left)
+    
+    if len(right) != 1:
+        right = merge_sort(right)
+
+    new_order = []
+
+    while len(left) > 0 and len(right) > 0:
+        if min(left) < min(right):
+            new_order.append(min(left))
+            left.remove((min(left)))
+        else:
+            new_order.append(min(right))
+            right.remove((min(right)))
+
+    if len(left) == 0:
+        new_order.extend(right)
+    else:
+        new_order.extend(left)
+    return new_order
+
+def retrieve_messages(user):
+    tab = CONTROLLER.WINDOW2.tabs
+    message_box = tab.get(user)[0]
+
+    connection = sqlite3.connect("User-details.db")
+    cursor = connection.cursor()
+
+    cursor.execute("""SELECT salt_2 
+            FROM users 
+            WHERE username=?""",
+            (CONTROLLER.username,))
+
+    salt = cursor.fetchone()[0]
+    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
+    f = Fernet(AES_KEY)
+
+    cursor.execute("""SELECT date, message
+                    FROM messages
+                    WHERE username=?
+                    AND otherParty=?""", (CONTROLLER.username, user))
+
+    time_message = []
+
+    for payload in cursor.fetchall():
+        date = payload[0]
+        date = pickle.loads(date)
+        message = payload[1]
+        message = f.decrypt(message).decode(encoding="utf8")
+        time_message.append((date, message))
+        
+    sorted_messages = merge_sort(time_message)
+
+    for x in sorted_messages:
+        message_box.append(x[1])
+
+    connection.close()
+
+def save_message(message, otherParty):
+    connection = sqlite3.connect("User-details.db")
+    cursor = connection.cursor()
+
+    date = datetime.now()
+    date = pickle.dumps(date)
+
+    cursor.execute("""SELECT salt_2 
+                    FROM users 
+                    WHERE username=?""",
+                    (CONTROLLER.username,))
+
+    salt = cursor.fetchone()[0]
+    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
+    f = Fernet(AES_KEY)
+    encrypted_message = f.encrypt(bytes(message, encoding="utf8"))
+
+    cursor.execute("""INSERT INTO messages (username, otherParty, date, message)
+                    VALUES (?,?,?,?)""", (CONTROLLER.username, otherParty, date, encrypted_message))
+
+    connection.commit()
+    connection.close()
 
 def table_exists(cursor, table_name):
     cursor.execute("""SELECT name 
@@ -631,12 +724,10 @@ def receive_messages():
             #So I found an alternative, ast.literal_eval
             #ast.literal_eval is incapable of operating on anything but python data types
             #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
-            try:
-                encrypted_data = ast.literal_eval(data[1])[0]
-                signature = ast.literal_eval(data[1])[1]
-            except Exception as e:
-                print(f"Exception: {e}\n Possible corrupted message or injection attempt")
-            
+
+            encrypted_data = ast.literal_eval(data[1])[0]
+            signature = ast.literal_eval(data[1])[1]
+        
             decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
             decrypted_data = decrypted_data.split(",", maxsplit=1)
             username = decrypted_data[0]
@@ -649,6 +740,8 @@ def receive_messages():
             else:
                 print("Received possibly tampered message")
                 return
+
+            save_message(message, selected_user)
 
             tab = CONTROLLER.WINDOW2.tabs
             message_box = tab.get(selected_user)[0]
@@ -689,7 +782,7 @@ def broadcast_self(username):
     while True:
         sock.sendto(MESSAGE, ('<broadcast>', PORT))
         print("Broadcasting...")
-        sleep(2)
+        sleep(0.5)
 
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
@@ -703,16 +796,12 @@ def detect_other_clients():
     while True:
         data, addr = sock.recvfrom(4096)
         #print(f"Recieved some data, not sure if compatible: {data}{addr}")
-        print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit=2)
             username = data[1]
-            try:
-                PUBLIC_KEY = pickle.loads(ast.literal_eval(data[2])[0])
-            except Exception as e:
-                print(f"Exception: {e}\n Possible corrupted broadcast or injection attempt")
+            PUBLIC_KEY = pickle.loads(ast.literal_eval(data[2])[0])
             print(f"got service announcement from: {username}")
             update_online_clients([addr[0], username, PUBLIC_KEY])
 
@@ -726,15 +815,15 @@ def remove_offline_clients():
         #Deepcopies are necessary here to prevent race conditions from occuring due to multiple threads attempting to access the same variable
         clone_clients_online = deepcopy(clients_online)
         for key, value in clone_clients_online.items():
-            #If broadcast hasn't been received in the last 4 seconds, this condition is true
+            #If broadcast hasn't been received in the last 2 seconds, this condition is true
             #The client is then removed from our dictionary
-            if (time()-value[0]) > 4:
+            if (time()-value[0]) > 2:
                 clients_online.pop(key)
                 client_data = [key, value[1]]
                 remove_client_from_online_list(client_data)
                 CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
-        sleep(1)
+        sleep(0.5)
 
 #Everytime a broadcast is detected, this function is run
 #Existing clients will have the time stamp of their last broadcast updated
@@ -789,7 +878,7 @@ def check_rsa_keys_available():
 #T0D0 - Test decryption of RSA keys DONE
 #Decrypt keys
 def decrypt_key(encrypted_private_key, salt):
-    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.WINDOW1.password, encoding="utf-8"), salt, 100000, dklen=32))
+    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
     f = Fernet(AES_KEY)
     private_key = pickle.loads(f.decrypt(encrypted_private_key))
     return private_key
@@ -798,7 +887,7 @@ def decrypt_key(encrypted_private_key, salt):
 #Encrypt keys
 def encrypt_key(private_key):
     salt = os.urandom(16)
-    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.WINDOW1.password, encoding="utf-8"), salt, 100000, dklen=32))
+    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
     f = Fernet(AES_KEY)
     bytes_priv_key = pickle.dumps(private_key)
     encrypted_private_key = f.encrypt(bytes_priv_key)

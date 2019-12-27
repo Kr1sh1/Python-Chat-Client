@@ -522,6 +522,21 @@ class WindowController():
     def __init__(self):
         self.login()
 
+    def make_fernet_key(self):
+        connection = sqlite3.connect("User-details.db")
+        cursor = connection.cursor()
+    
+        cursor.execute("""SELECT salt_2 
+                FROM users 
+                WHERE username=?""",
+                (CONTROLLER.username,))
+
+        salt = cursor.fetchone()[0]
+        AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
+        self.fernet_key = Fernet(AES_KEY)
+
+        connection.close()
+
     def login(self):
         self.WINDOW1 = LoginWindow()
 
@@ -538,7 +553,7 @@ class WindowController():
 
         #Checks if keys are available in database and updates them in RSACrypt class, else generates new keys
         keys = check_rsa_keys_available()
-        if keys[0] == False:
+        if keys is False:
             self.WINDOW1.InformationLabel.setText("Generating RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
             self.WINDOW1.InformationLabel.repaint()
@@ -548,7 +563,7 @@ class WindowController():
             self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
             self.WINDOW1.InformationLabel.repaint()
-            RSA_ENCRYPTION.update_keys(keys[1], keys[2])
+            RSA_ENCRYPTION.update_keys(keys[0], keys[1])
 
         self.WINDOW1.close()
 
@@ -606,15 +621,6 @@ def retrieve_messages(user):
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
 
-    cursor.execute("""SELECT salt_2 
-            FROM users 
-            WHERE username=?""",
-            (CONTROLLER.username,))
-
-    salt = cursor.fetchone()[0]
-    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
-    f = Fernet(AES_KEY)
-
     cursor.execute("""SELECT date, message
                     FROM messages
                     WHERE username=?
@@ -626,7 +632,7 @@ def retrieve_messages(user):
         date = payload[0]
         date = pickle.loads(date)
         message = payload[1]
-        message = f.decrypt(message).decode(encoding="utf8")
+        message = CONTROLLER.fernet_key.decrypt(message).decode(encoding="utf8")
         time_message.append((date, message))
         
     sorted_messages = merge_sort(time_message)
@@ -643,15 +649,7 @@ def save_message(message, otherParty):
     date = datetime.now()
     date = pickle.dumps(date)
 
-    cursor.execute("""SELECT salt_2 
-                    FROM users 
-                    WHERE username=?""",
-                    (CONTROLLER.username,))
-
-    salt = cursor.fetchone()[0]
-    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
-    f = Fernet(AES_KEY)
-    encrypted_message = f.encrypt(bytes(message, encoding="utf8"))
+    encrypted_message = CONTROLLER.fernet_key.encrypt(bytes(message, encoding="utf8"))
 
     cursor.execute("""INSERT INTO messages (username, otherParty, date, message)
                     VALUES (?,?,?,?)""", (CONTROLLER.username, otherParty, date, encrypted_message))
@@ -860,27 +858,26 @@ def add_client_to_online_list(client_data):
 #T0D0 DONE
 #Check if keys are available in database
 #Decrypt them if available
-#Return list [True/False, PublicKey/None, PrivateKey/None]
+#Return list PublicKey, PrivateKey (or False)
 def check_rsa_keys_available():
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
-    cursor.execute("""SELECT public_key, encrypted_private_key, salt_2 
+    cursor.execute("""SELECT public_key, encrypted_private_key 
                       FROM users 
                       WHERE username=?""",
                       (CONTROLLER.username,))
-    public_key, encrypted_private_key, salt = cursor.fetchone()
-    if salt is None:
-        return [False, None, None]
-    private_key = decrypt_key(encrypted_private_key, salt)
+    public_key, encrypted_private_key = cursor.fetchone()
+    if public_key is None:
+        return False
+    CONTROLLER.make_fernet_key()
+    private_key = decrypt_key(encrypted_private_key)
     public_key = pickle.loads(public_key)
-    return [True, public_key, private_key]
+    return public_key, private_key
 
 #T0D0 - Test decryption of RSA keys DONE
 #Decrypt keys
-def decrypt_key(encrypted_private_key, salt):
-    AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
-    f = Fernet(AES_KEY)
-    private_key = pickle.loads(f.decrypt(encrypted_private_key))
+def decrypt_key(encrypted_private_key):
+    private_key = pickle.loads(CONTROLLER.fernet_key.decrypt(encrypted_private_key))
     return private_key
 
 #T0D0 - RSA keys encryption needs to be tested DONE
@@ -909,7 +906,6 @@ def save_rsa_keys(public_key, private_key):
     connection.close()
 
 def main():
-    global APP
     global CONTROLLER
 
     APP = QApplication(sys.argv)

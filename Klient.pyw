@@ -25,14 +25,6 @@ class RSACrypt():
     def __init__(self):
         #The key generation process can take a while, taking advantage of multiple cores in the system will speed it up
         self.number_of_cpu_cores = multiprocessing.cpu_count()
-
-        if self.number_of_cpu_cores >= 8:
-            self.number_of_cpu_cores = 4
-        elif self.number_of_cpu_cores >= 4:
-            self.number_of_cpu_cores = 2
-        else:
-            self.number_of_cpu_cores = 1
-
         self.__public_key , self.__private_key = None, None
 
     def get_public_key(self):
@@ -355,6 +347,7 @@ class LoginWindow(QMainWindow, login_window):
 
 #T0D0 - Update stylesheets to better color scheme for dynamically created objects DONE
 class MainWindow(QMainWindow, main_window):
+    create_a_tab = QtCore.pyqtSignal()
     def __init__(self):
         super(MainWindow, self).__init__()
 
@@ -366,6 +359,9 @@ class MainWindow(QMainWindow, main_window):
         #On click of these buttons, the function named as a parameter is executed
         self.actionExit.triggered.connect(exit_program)
         self.listWidget.itemDoubleClicked.connect(self.item_changed)
+
+        self.selected_user_arg = None
+        self.create_a_tab.connect(lambda: self.create_tab(self.selected_user_arg))
 
         #This dictionary is used to keep track of dynamically generated objects
         self.tabs = {}
@@ -413,11 +409,12 @@ class MainWindow(QMainWindow, main_window):
                     self.tabWidget.setCurrentIndex(x)
                 return
 
-        self.create_tab(selected_user, tab_count)
+        self.create_tab(selected_user)
 
     #Creates a new tab for each new user
     #GUI generation
-    def create_tab(self, selected_user, tab_count):
+    def create_tab(self, selected_user):
+        tab_count = self.tabWidget.count()
         tab_object_name = "object " + str(self.tabWidget.count())
         tab = QWidget()
         tab.setObjectName(tab_object_name)
@@ -437,7 +434,7 @@ class MainWindow(QMainWindow, main_window):
         vertlayout_2.addLayout(horizlayout_2)
         verticalLayout_4.addLayout(vertlayout_2)
 
-        enter_button.clicked.connect(lambda: self.message_entered(text_entry, selected_user, message_box))
+        enter_button.clicked.connect(lambda: self.message_entered(text_entry, selected_user))
 
         self.tabWidget.addTab(tab, selected_user)
         self.tabWidget.setCurrentIndex(tab_count)
@@ -500,7 +497,7 @@ class MainWindow(QMainWindow, main_window):
         return pushButton
 
     #Adds message to message box and calls function to send message
-    def message_entered(self, text_entry, selected_user, message_box):
+    def message_entered(self, text_entry, selected_user):
         message = text_entry.toPlainText()
         text_entry.clear()
 
@@ -510,7 +507,6 @@ class MainWindow(QMainWindow, main_window):
 
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
-        save_message(message, selected_user)
 
 #T0D0 - InformationLabel won't update correctly, maybe try and fix (low priority) - FIXED by forcing repaint of information label
 #Controls several things, such as which windows appear when and when to start multiple threads
@@ -585,6 +581,9 @@ class WindowController():
         t4.start()
 
 def merge_sort(data):
+    if len(data) == 1:
+        return data
+
     middle = len(data) // 2
     left = data[:middle]
     right = data[middle:]
@@ -679,7 +678,7 @@ def exit_program():
 #Probably should do something about that. Possible fix is exchanging AES keys through RSA, then using those to encrypt and decrypt data
 #As there is no max to amount of data when encrypting with AES
 
-#TODO - Don't attempt to send messages if the user went offline
+#T0D0 - Don't attempt to send messages if the user went offline - DONE
 def send_message(selected_user, message):
     PORT = 8001
     MAGIC_PASS = "iJ9d2J,"
@@ -687,24 +686,25 @@ def send_message(selected_user, message):
     USER = bytes(CONTROLLER.username + " " + IP_ADDRESS, encoding="utf-8")
     tab = CONTROLLER.WINDOW2.tabs
     message_box = tab.get(selected_user)[0]
-    message = CONTROLLER.username + "," + message
+    username_message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
     client = clients_online.get(selected_user_ip)
 
     if client is None:
-        message = "<font color = #F00>" + "Last message not sent: User offline" + "</color>"
+        message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
         message_box.append(message)
         return
 
     PUBLIC_KEY = client[2]
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
-    encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
+    encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(username_message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
 
     sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
 
     message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
     message_box.append(message)
+    save_message(message, selected_user)
 
 #T0D0 - Implement verification of message to ensure the sender isn't lying about their identity - DONE NEEDS TESTING
 
@@ -755,8 +755,14 @@ def receive_messages():
             save_message(message, selected_user)
 
             tab = CONTROLLER.WINDOW2.tabs
-            message_box = tab.get(selected_user)[0]
-            message_box.append(message)
+            client = tab.get(selected_user)
+
+            if client is None:
+                CONTROLLER.WINDOW2.selected_user_arg = selected_user
+                CONTROLLER.WINDOW2.create_a_tab.emit()
+            else:
+                message_box = client[0]
+                message_box.append(message)
 
     return
 
@@ -792,8 +798,8 @@ def broadcast_self(username):
     #Broadcast the message every 2 seconds
     while True:
         sock.sendto(MESSAGE, ('<broadcast>', PORT))
-        print("Broadcasting...")
-        sleep(0.5)
+        #print("Broadcasting...")
+        sleep(0.1)
 
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
@@ -809,11 +815,10 @@ def detect_other_clients():
         #print(f"Recieved some data, not sure if compatible: {data}{addr}")
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
-        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
             data = data.decode("utf-8").split(",", maxsplit=2)
             username = data[1]
             PUBLIC_KEY = pickle.loads(ast.literal_eval(data[2])[0])
-            print(f"got service announcement from: {username}")
+            #print(f"got service announcement from: {username}")
             update_online_clients([addr[0], username, PUBLIC_KEY])
 
 #Remove clients that haven't broadcasted in the last 3 seconds from our dictionary
@@ -828,13 +833,13 @@ def remove_offline_clients():
         for key, value in clone_clients_online.items():
             #If broadcast hasn't been received in the last 2 seconds, this condition is true
             #The client is then removed from our dictionary
-            if (time()-value[0]) > 2:
+            if (time()-value[0]) > 1:
                 clients_online.pop(key)
                 client_data = [key, value[1]]
                 remove_client_from_online_list(client_data)
                 CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
 
-        sleep(0.5)
+        sleep(0.1)
 
 #Everytime a broadcast is detected, this function is run
 #Existing clients will have the time stamp of their last broadcast updated

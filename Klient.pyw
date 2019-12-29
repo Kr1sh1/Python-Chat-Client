@@ -411,7 +411,6 @@ class MainWindow(QMainWindow, main_window):
             if self.tabWidget.tabText(x) == selected_user:
                 if self.tabWidget.currentIndex != x:
                     self.tabWidget.setCurrentIndex(x)
-
                 return
 
         self.create_tab(selected_user, tab_count)
@@ -511,9 +510,6 @@ class MainWindow(QMainWindow, main_window):
 
         print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
-        message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
-        message_box.append(message)
-
         save_message(message, selected_user)
 
 #T0D0 - InformationLabel won't update correctly, maybe try and fix (low priority) - FIXED by forcing repaint of information label
@@ -559,6 +555,7 @@ class WindowController():
             self.WINDOW1.InformationLabel.repaint()
             __public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
             save_rsa_keys(__public_key, __private_key)
+            CONTROLLER.make_fernet_key()
         else:
             self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
@@ -635,6 +632,10 @@ def retrieve_messages(user):
         message = CONTROLLER.fernet_key.decrypt(message).decode(encoding="utf8")
         time_message.append((date, message))
         
+    #No messages available
+    if not time_message:
+        return
+
     sorted_messages = merge_sort(time_message)
 
     for x in sorted_messages:
@@ -684,14 +685,26 @@ def send_message(selected_user, message):
     MAGIC_PASS = "iJ9d2J,"
     IP_ADDRESS = socket.gethostbyname(socket.gethostname())
     USER = bytes(CONTROLLER.username + " " + IP_ADDRESS, encoding="utf-8")
+    tab = CONTROLLER.WINDOW2.tabs
+    message_box = tab.get(selected_user)[0]
     message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
-    PUBLIC_KEY = clients_online.get(selected_user_ip)[2]
+    client = clients_online.get(selected_user_ip)
+
+    if client is None:
+        message = "<font color = #F00>" + "Last message not sent: User offline" + "</color>"
+        message_box.append(message)
+        return
+
+    PUBLIC_KEY = client[2]
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
     encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
 
     sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
+
+    message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
+    message_box.append(message)
 
 #T0D0 - Implement verification of message to ensure the sender isn't lying about their identity - DONE NEEDS TESTING
 

@@ -13,12 +13,13 @@ import base64
 
 from datetime import datetime
 from cryptography.fernet import Fernet
-from copy import deepcopy
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
 from PyQt5 import QtCore, QtWidgets
 from login_window import Ui_MainWindow as login_window
 from main_window import Ui_MainWindow as main_window
+
+clients_online_lock = threading.Lock()
 
 #The RSACrypt class provides in a simple interface the methods to encrypt or decrypt messages using the RSA algorithm
 class RSACrypt():
@@ -464,6 +465,7 @@ class MainWindow(QMainWindow, main_window):
         horizontalLayout_2 = QtWidgets.QHBoxLayout()
         horizontalLayout_2.setObjectName("horizontalLayout_2")
         plainTextEdit = QPlainTextEdit(tab)
+        plainTextEdit.setStyleSheet("background-color: #F00;")
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -597,12 +599,12 @@ def merge_sort(data):
     new_order = []
 
     while len(left) > 0 and len(right) > 0:
-        if min(left) < min(right):
-            new_order.append(min(left))
-            left.remove((min(left)))
+        if left[0] < right[0]:
+            new_order.append(left[0])
+            left.remove(left[0])
         else:
-            new_order.append(min(right))
-            right.remove((min(right)))
+            new_order.append(right[0])
+            right.remove(right[0])
 
     if len(left) == 0:
         new_order.extend(right)
@@ -688,7 +690,10 @@ def send_message(selected_user, message):
     message_box = tab.get(selected_user)[0]
     username_message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
+
+    clients_online_lock.acquire()
     client = clients_online.get(selected_user_ip)
+    clients_online_lock.release()
 
     if client is None:
         message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
@@ -745,7 +750,10 @@ def receive_messages():
             message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
             selected_user = username + " " + addr[0]
 
+            clients_online_lock.acquire()
             user_pub_key = clients_online.get(addr[0])[2]
+            clients_online_lock.release()
+
             if rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
                 print("Message verified")
             else:
@@ -829,8 +837,10 @@ def remove_offline_clients():
     while True:
         #Creating a copy of the dictionary, deepcopies prevent the original copy from being modified
         #Deepcopies are necessary here to prevent race conditions from occuring due to multiple threads attempting to access the same variable
-        clone_clients_online = deepcopy(clients_online)
-        for key, value in clone_clients_online.items():
+
+        #Deep copy no longer necessary due to implementation of thread locks
+        clients_online_lock.acquire()
+        for key, value in clients_online.items():
             #If broadcast hasn't been received in the last 2 seconds, this condition is true
             #The client is then removed from our dictionary
             if (time()-value[0]) > 1:
@@ -838,7 +848,7 @@ def remove_offline_clients():
                 client_data = [key, value[1]]
                 remove_client_from_online_list(client_data)
                 CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
-
+        clients_online_lock.release()
         sleep(0.1)
 
 #Everytime a broadcast is detected, this function is run
@@ -847,17 +857,19 @@ def remove_offline_clients():
 def update_online_clients(client_data):
     global clients_online
     
-    clone_clients_online = deepcopy(clients_online)
-    for key in clone_clients_online.items():
+    clients_online_lock.acquire()
+    for key in clients_online.items():
         if key[0] == client_data[0]:
             #Updating only the timestamp
             clients_online[key[0]] = [time(), client_data[1], client_data[2]]
+            clients_online_lock.release()
             return
 
     #Adding client to dictionary
     clients_online[client_data[0]] = [time(), client_data[1], client_data[2]]
     add_client_to_online_list(client_data)
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
+    clients_online_lock.release()
 
 #T0D0-FIXED#
 #Make sure new implementation of saving item objects in dictionary is working

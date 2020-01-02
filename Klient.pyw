@@ -19,6 +19,7 @@ from PyQt5 import QtCore, QtWidgets
 from login_window import Ui_MainWindow as login_window
 from main_window import Ui_MainWindow as main_window
 
+#Thread lock prevents multiple threads from accessing certain variable simultaneously
 clients_online_lock = threading.Lock()
 
 #The RSACrypt class provides in a simple interface the methods to encrypt or decrypt messages using the RSA algorithm
@@ -835,10 +836,6 @@ def remove_offline_clients():
     global clients_online
     clients_online = {}
     while True:
-        #Creating a copy of the dictionary, deepcopies prevent the original copy from being modified
-        #Deepcopies are necessary here to prevent race conditions from occuring due to multiple threads attempting to access the same variable
-
-        #Deep copy no longer necessary due to implementation of thread locks
         clients_online_lock.acquire()
         for key, value in clients_online.items():
             #If broadcast hasn't been received in the last 2 seconds, this condition is true

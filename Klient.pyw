@@ -92,7 +92,7 @@ class LoginWindow(QMainWindow, login_window):
         self.actionLight_Mode.triggered.connect(self.enable_light_mode)
 
     #This function checks if the username and password entered are suitable
-    def input_checks(self, username, password):
+    def input_checks(self, username: str, password: str) -> bool:
         #List of characters not allowed in username
         illegal_characters = [" ", ",", "\"", "\'", "\\", "/"]
 
@@ -582,7 +582,7 @@ class WindowController():
         t3.start()
         t4.start()
 
-def merge_sort(data):
+def merge_sort(data: list) -> list:
     if len(data) == 1:
         return data
 
@@ -612,7 +612,7 @@ def merge_sort(data):
         new_order.extend(left)
     return new_order
 
-def retrieve_messages(user):
+def retrieve_messages(user: str) -> None:
     tab = CONTROLLER.WINDOW2.tabs
     message_box = tab.get(user)[0]
 
@@ -644,7 +644,7 @@ def retrieve_messages(user):
 
     connection.close()
 
-def save_message(message, otherParty):
+def save_message(message: str, otherParty: str) -> None:
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
 
@@ -659,7 +659,7 @@ def save_message(message, otherParty):
     connection.commit()
     connection.close()
 
-def table_exists(cursor, table_name):
+def table_exists(cursor: object, table_name: str) -> bool:
     cursor.execute("""SELECT name 
                     FROM sqlite_master 
                     WHERE type='table' 
@@ -681,7 +681,7 @@ def exit_program():
 #As there is no max to amount of data when encrypting with AES
 
 #T0D0 - Don't attempt to send messages if the user went offline - DONE
-def send_message(selected_user, message):
+def send_message(selected_user: str, message: str) -> None:
     PORT = 8001
     MAGIC_PASS = "iJ9d2J,"
     IP_ADDRESS = socket.gethostbyname(socket.gethostname())
@@ -781,7 +781,7 @@ def receive_messages():
 #This is so new passwords can be created with a new salt, and so existing passwords can be hashed
 #with their salt to check against a hash in the database.
 
-def hash_password(password, salt=None):
+def hash_password(password: str, salt: bytes=None) -> bytes:
     password_bytes = bytes(password, encoding="utf-8")
     if salt is None:
         salt = os.urandom(16)

@@ -706,14 +706,23 @@ def send_message(selected_user: str, message: str) -> None:
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
     try:
-        encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(username_message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
+        encrypted_message = MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(username_message, PUBLIC_KEY), RSA_SIGNATURE])
     except OverflowError:
         message = "<font color = #F00>" + "Message length exceeds maximum size, please make it smaller" + "</color>"
         message_box.append(message)
         return
 
-    sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
+        # Connect to server and send data
+        sending_socket.settimeout(2)
+        try:
+            sending_socket.connect((selected_user_ip, PORT))
+            length_of_data = str(len(encrypted_message)) + ":"
+            data = bytes(length_of_data + encrypted_message, encoding="utf-8")
+            sending_socket.sendall(data)
+            print(f"Sent: {data}")
+        except socket.timeout:
+            print("The server failed to respond within the timeout period")
 
     message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
     message_box.append(message)
@@ -729,57 +738,66 @@ def send_message(selected_user: str, message: str) -> None:
 def receive_messages():
     PORT = 8001
     MAGIC_PASS = "iJ9d2J"
-    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
-
-    receiving_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    receiving_sock.bind(('', PORT))
+    receiving_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    receiving_socket.bind(("", PORT))
+    receiving_socket.listen(5)
 
     while True:
-        data, addr = receiving_sock.recvfrom(4096)
-        #print(f"Recieved some data, not sure if relevant: {data}{addr}")
-        #print(IP_ADDRESS)
-        #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
-        if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
-        #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
-            data = data.decode("utf-8").split(",", maxsplit=1)
+        sender, address = receiving_socket.accept()
 
-            #Previously I was using eval to turn a string representation of a list into a list
-            #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
-            #So I found an alternative, ast.literal_eval
-            #ast.literal_eval is incapable of operating on anything but python data types
-            #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
+        with sender:
+            data = sender.recv(1024)
+            while ":" not in data.decode(encoding="utf-8"):
+                data += sender.recv(1024)
 
-            encrypted_data = ast.literal_eval(data[1])[0]
-            signature = ast.literal_eval(data[1])[1]
-        
-            decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
-            decrypted_data = decrypted_data.split(",", maxsplit=1)
-            username = decrypted_data[0]
-            message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
-            selected_user = username + " " + addr[0]
+            index = data.decode(encoding="utf-8").index(":")
+            message_size = int(data.decode(encoding="utf-8")[:index])
+            data = data.decode(encoding="utf-8")[index+1:]
 
-            clients_online_lock.acquire()
-            user_pub_key = clients_online.get(addr[0])[2]
-            clients_online_lock.release()
+            while len(data) != message_size:
+                data += sender.recv(1024).decode(encoding="utf-8")
 
-            if rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
-                pass
-                #print("Message verified")
-            else:
-                print("Received possibly tampered message")
-                return
+            #Making sure the message is meant for us
+            if data.startswith(MAGIC_PASS):
+                data = data.split(",", maxsplit=1)
 
-            save_message(message, selected_user)
+                #Previously I was using eval to turn a string representation of a list into a list
+                #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
+                #So I found an alternative, ast.literal_eval
+                #ast.literal_eval is incapable of operating on anything but python data types
+                #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
 
-            tab = CONTROLLER.WINDOW2.tabs
-            client = tab.get(selected_user)
+                encrypted_data = ast.literal_eval(data[1])[0]
+                signature = ast.literal_eval(data[1])[1]
+            
+                decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
+                decrypted_data = decrypted_data.split(",", maxsplit=1)
+                username = decrypted_data[0]
+                message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
+                selected_user = username + " " + address[0]
 
-            if client is None:
-                CONTROLLER.WINDOW2.selected_user_arg = selected_user
-                CONTROLLER.WINDOW2.create_a_tab.emit()
-            else:
-                message_box = client[0]
-                message_box.append(message)
+                clients_online_lock.acquire()
+                user_pub_key = clients_online.get(address[0])[2]
+                clients_online_lock.release()
+
+                if rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
+                    pass
+                    #print("Message verified")
+                else:
+                    print("Received possibly tampered message")
+                    return
+
+                save_message(message, selected_user)
+
+                tab = CONTROLLER.WINDOW2.tabs
+                client = tab.get(selected_user)
+
+                if client is None:
+                    CONTROLLER.WINDOW2.selected_user_arg = selected_user
+                    CONTROLLER.WINDOW2.create_a_tab.emit()
+                else:
+                    message_box = client[0]
+                    message_box.append(message)
 
 #Function to hash password
 

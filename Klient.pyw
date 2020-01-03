@@ -20,6 +20,7 @@ from login_window import Ui_MainWindow as login_window
 from main_window import Ui_MainWindow as main_window
 
 #Thread lock prevents multiple threads from accessing certain variable simultaneously
+clients_online = {}
 clients_online_lock = threading.Lock()
 
 #The RSACrypt class provides in a simple interface the methods to encrypt or decrypt messages using the RSA algorithm
@@ -104,14 +105,14 @@ class LoginWindow(QMainWindow, login_window):
             #Updating message box in the GUI
             self.InformationLabel.setText("Values must be entered for both fields")
             self.InformationLabel.setStyleSheet('color: red')
-            print("Values must be entered for both fields")
+            #print("Values must be entered for both fields")
             return True
 
         #If any illegal characters are in the username, then this will return True, else False
         if any(iterable):
             self.InformationLabel.setText("Illegal characters in username. No spaces, commas or speech marks are permitted")
             self.InformationLabel.setStyleSheet('color: red')
-            print("Illegal characters in username")
+            #print("Illegal characters in username")
             return True
 
         return False
@@ -135,7 +136,7 @@ class LoginWindow(QMainWindow, login_window):
             #Updating message box in the GUI
             self.InformationLabel.setText("Database file missing or empty. Make a new account.")
             self.InformationLabel.setStyleSheet('color: red')
-            print("Database file missing or empty. Make a new account.")
+            #print("Database file missing or empty. Make a new account.")
             connection.close()
             return
 
@@ -152,7 +153,7 @@ class LoginWindow(QMainWindow, login_window):
             #Updating message box in the GUI
             self.InformationLabel.setText("Incorrect Username")
             self.InformationLabel.setStyleSheet('color: red')
-            print("Incorrect username")
+            #print("Incorrect username")
             connection.close()
             return
 
@@ -167,13 +168,13 @@ class LoginWindow(QMainWindow, login_window):
             self.InformationLabel.setText("Login successful")
             self.InformationLabel.setStyleSheet('color: green')
             self.InformationLabel.repaint()
-            print("login successful")
+            #print("login successful")
 
         else:
             #Updating message box in the GUI
             self.InformationLabel.setText("Incorrect password")
             self.InformationLabel.setStyleSheet('color: red')
-            print("Incorrect password")
+            #print("Incorrect password")
             self.PasswordLine.setText("")
             connection.close()
             return
@@ -225,7 +226,7 @@ class LoginWindow(QMainWindow, login_window):
             if payload is not None:
                 self.InformationLabel.setText("Username already exists, try a different one")
                 self.InformationLabel.setStyleSheet('color: red')
-                print("Username already exists, try a different one")
+                #print("Username already exists, try a different one")
                 connection.close()
                 return
 
@@ -239,7 +240,7 @@ class LoginWindow(QMainWindow, login_window):
         #Updating message box in the GUI
         self.InformationLabel.setText("Registration complete!")
         self.InformationLabel.setStyleSheet('color: green')
-        print("registration complete!")
+        #print("registration complete!")
 
     #Executed when dark mode button pressed
     #Updates stylesheets of GUI objects
@@ -379,7 +380,6 @@ class MainWindow(QMainWindow, main_window):
         if event.key() == 16777238:
             focus = QApplication.focusObject()
             if "QPlainTextEdit" in str(focus):
-                print(focus)
                 if not self.stack_up.is_empty():
                     selected_user = self.tabWidget.tabText(self.tabWidget.currentIndex())
                     latest_message = self.stack_up.pop()
@@ -437,6 +437,7 @@ class MainWindow(QMainWindow, main_window):
         verticalLayout_4.addLayout(vertlayout_2)
 
         enter_button.clicked.connect(lambda: self.message_entered(text_entry, selected_user))
+        message_box.verticalScrollBar().rangeChanged.connect(lambda minimum, maximum: message_box.verticalScrollBar().setSliderPosition(maximum))
 
         self.tabWidget.addTab(tab, selected_user)
         self.tabWidget.setCurrentIndex(tab_count)
@@ -508,7 +509,7 @@ class MainWindow(QMainWindow, main_window):
         if self.stack_up.is_empty() or self.stack_up.peek() != message:
             self.stack_up.push(message)
 
-        print(f"The following message will be sent to: {selected_user} \n\n {message}")
+        #print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
 
 #T0D0 - InformationLabel won't update correctly, maybe try and fix (low priority) - FIXED by forcing repaint of information label
@@ -696,14 +697,20 @@ def send_message(selected_user: str, message: str) -> None:
     client = clients_online.get(selected_user_ip)
     clients_online_lock.release()
 
-    if client is None:
+    if client[3] is False:
         message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
         message_box.append(message)
         return
 
     PUBLIC_KEY = client[2]
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
-    encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(username_message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
+
+    try:
+        encrypted_message = bytes(MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(username_message, PUBLIC_KEY), RSA_SIGNATURE]), encoding="utf8")
+    except OverflowError:
+        message = "<font color = #F00>" + "Message length exceeds maximum size, please make it smaller" + "</color>"
+        message_box.append(message)
+        return
 
     sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sending_sock.sendto(encrypted_message, (selected_user_ip, PORT))
@@ -730,7 +737,7 @@ def receive_messages():
     while True:
         data, addr = receiving_sock.recvfrom(4096)
         #print(f"Recieved some data, not sure if relevant: {data}{addr}")
-        print(IP_ADDRESS)
+        #print(IP_ADDRESS)
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
         #if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")):
@@ -756,7 +763,8 @@ def receive_messages():
             clients_online_lock.release()
 
             if rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
-                print("Message verified")
+                pass
+                #print("Message verified")
             else:
                 print("Received possibly tampered message")
                 return
@@ -772,8 +780,6 @@ def receive_messages():
             else:
                 message_box = client[0]
                 message_box.append(message)
-
-    return
 
 #Function to hash password
 
@@ -834,17 +840,23 @@ def detect_other_clients():
 def remove_offline_clients():
     #Global variable lets us access this variable outside of this function
     global clients_online
-    clients_online = {}
     while True:
         clients_online_lock.acquire()
         for key, value in clients_online.items():
             #If broadcast hasn't been received in the last 2 seconds, this condition is true
             #The client is then removed from our dictionary
             if (time()-value[0]) > 1:
-                clients_online.pop(key)
+                value[3] = False
+                clients_online[key] = value
                 client_data = [key, value[1]]
                 remove_client_from_online_list(client_data)
-                CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
+
+        number_of_clients_online = 0
+        for item in clients_online.items():
+            if item[1][3] == True:
+                number_of_clients_online += 1
+
+        CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
         clients_online_lock.release()
         sleep(0.1)
 
@@ -855,17 +867,34 @@ def update_online_clients(client_data):
     global clients_online
     
     clients_online_lock.acquire()
-    for key in clients_online.items():
-        if key[0] == client_data[0]:
-            #Updating only the timestamp
-            clients_online[key[0]] = [time(), client_data[1], client_data[2]]
+
+    number_of_clients_online = 0
+    for item in clients_online.items():
+        if item[1][3] == True:
+            number_of_clients_online += 1
+
+    for key, value in clients_online.items():
+        if key == client_data[0]:
+            if value[3] == True:
+                #Updating the timestamp and online status
+                value[0] = time()
+                value[3] = True
+                clients_online[key] = value
+                clients_online_lock.release()
+                return
+            
+            value[0] = time()
+            value[3] = True
+            clients_online[key] = value
+            add_client_to_online_list(client_data)
+            CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
             clients_online_lock.release()
             return
 
     #Adding client to dictionary
-    clients_online[client_data[0]] = [time(), client_data[1], client_data[2]]
+    clients_online[client_data[0]] = [time(), client_data[1], client_data[2], True]
     add_client_to_online_list(client_data)
-    CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(len(clients_online)))
+    CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
     clients_online_lock.release()
 
 #T0D0-FIXED#

@@ -722,7 +722,9 @@ def send_message(selected_user: str, message: str) -> None:
             sending_socket.sendall(data)
             print(f"Sent: {data}")
         except socket.timeout:
-            print("The server failed to respond within the timeout period")
+            message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
+            message_box.append(message)
+            return
 
     message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
     message_box.append(message)

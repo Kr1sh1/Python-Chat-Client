@@ -110,7 +110,7 @@ class LoginWindow(QMainWindow, login_window):
 
         #If any illegal characters are in the username, then this will return True, else False
         if any(iterable):
-            self.InformationLabel.setText("Illegal characters in username. No spaces, commas or speech marks are permitted")
+            self.InformationLabel.setText("Illegal characters in username. No spaces, commas, slashes or speech marks are permitted")
             self.InformationLabel.setStyleSheet('color: red')
             #print("Illegal characters in username")
             return True

@@ -720,7 +720,6 @@ def send_message(selected_user: str, message: str) -> None:
             length_of_data = str(len(encrypted_message)) + ":"
             data = bytes(length_of_data + encrypted_message, encoding="utf-8")
             sending_socket.sendall(data)
-            print(f"Sent: {data}")
         except socket.timeout:
             message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
             message_box.append(message)

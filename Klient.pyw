@@ -747,16 +747,20 @@ def receive_messages():
         sender, address = receiving_socket.accept()
 
         with sender:
-            data = sender.recv(1024)
-            while ":" not in data.decode(encoding="utf-8"):
-                data += sender.recv(1024)
+            incoming_data = bytearray()
+            incoming_data.extend(sender.recv(1024))
 
-            index = data.decode(encoding="utf-8").index(":")
-            message_size = int(data.decode(encoding="utf-8")[:index])
-            data = data.decode(encoding="utf-8")[index+1:]
+            while b":" not in incoming_data:
+                incoming_data.extend(sender.recv(1024))
 
-            while len(data) != message_size:
-                data += sender.recv(1024).decode(encoding="utf-8")
+            index = incoming_data.index(b":")
+            message_size = int(incoming_data[:index])
+            incoming_data = incoming_data[index+1:]
+
+            while len(incoming_data) != message_size:
+                incoming_data.extend(sender.recv(1024))
+
+            data = incoming_data.decode(encoding="utf-8")
 
             #Making sure the message is meant for us
             if data.startswith(MAGIC_PASS):

@@ -518,7 +518,7 @@ class WindowController():
     def __init__(self):
         self.login()
 
-    def make_database_fernet_key(self):
+    def make_fernet_key(self):
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
     
@@ -529,14 +529,9 @@ class WindowController():
 
         salt = cursor.fetchone()[0]
         AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
-        self.fernet_database_key = Fernet(AES_KEY)
+        self.fernet_key = Fernet(AES_KEY)
 
         connection.close()
-
-    def make_message_fernet_key(self):
-        salt = os.urandom(16)
-        AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
-        self.fernet_message_key = Fernet(AES_KEY)
 
     def login(self):
         self.WINDOW1 = LoginWindow()
@@ -552,8 +547,6 @@ class WindowController():
 
         RSA_ENCRYPTION = RSACrypt()
 
-        self.make_message_fernet_key()
-
         #Checks if keys are available in database and updates them in RSACrypt class, else generates new keys
         keys = check_rsa_keys_available()
         if keys is False:
@@ -562,7 +555,7 @@ class WindowController():
             self.WINDOW1.InformationLabel.repaint()
             __public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
             save_rsa_keys(__public_key, __private_key)
-            CONTROLLER.make_database_fernet_key()
+            CONTROLLER.make_fernet_key()
         else:
             self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
@@ -639,7 +632,7 @@ def retrieve_messages(user: str) -> None:
         date = payload[0]
         date = pickle.loads(date)
         message = payload[1]
-        message = CONTROLLER.fernet_database_key.decrypt(message).decode(encoding="utf8")
+        message = CONTROLLER.fernet_key.decrypt(message).decode(encoding="utf8")
         time_message.append((date, message))
         
     #No messages available
@@ -660,7 +653,7 @@ def save_message(message: str, otherParty: str) -> None:
     date = datetime.now()
     date = pickle.dumps(date)
 
-    encrypted_message = CONTROLLER.fernet_database_key.encrypt(bytes(message, encoding="utf8"))
+    encrypted_message = CONTROLLER.fernet_key.encrypt(bytes(message, encoding="utf8"))
 
     cursor.execute("""INSERT INTO messages (username, otherParty, date, message)
                     VALUES (?,?,?,?)""", (CONTROLLER.username, otherParty, date, encrypted_message))
@@ -712,7 +705,12 @@ def send_message(selected_user: str, message: str) -> None:
     PUBLIC_KEY = client[2]
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
-    encrypted_message = MAGIC_PASS + str([CONTROLLER.fernet_message_key.encrypt(username_message.encode("utf-8")), RSA_ENCRYPTION.encrypt_message(CONTROLLER.fernet_message_key, PUBLIC_KEY), RSA_SIGNATURE])
+    try:
+        encrypted_message = MAGIC_PASS + str([RSA_ENCRYPTION.encrypt_message(username_message, PUBLIC_KEY), RSA_SIGNATURE])
+    except OverflowError:
+        message = "<font color = #F00>" + "Message length exceeds maximum size, please make it smaller" + "</color>"
+        message_box.append(message)
+        return
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
         # Connect to server and send data
@@ -766,7 +764,7 @@ def receive_messages():
 
             #Making sure the message is meant for us
             if data.startswith(MAGIC_PASS):
-                data = data.split(",", maxsplit=1)[1]
+                data = data.split(",", maxsplit=1)
 
                 #Previously I was using eval to turn a string representation of a list into a list
                 #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
@@ -774,12 +772,10 @@ def receive_messages():
                 #ast.literal_eval is incapable of operating on anything but python data types
                 #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
 
-                encrypted_data = ast.literal_eval(data)[0]
-                encrypted_key = ast.literal_eval(data)[1]
-                signature = ast.literal_eval(data)[2]
+                encrypted_data = ast.literal_eval(data[1])[0]
+                signature = ast.literal_eval(data[1])[1]
             
-                decrypted_key = RSA_ENCRYPTION.decrypt_message(encrypted_key)
-                decrypted_data = Fernet(decrypted_key).decrypt(encrypted_data)
+                decrypted_data = RSA_ENCRYPTION.decrypt_message(encrypted_data)
                 decrypted_data = decrypted_data.split(",", maxsplit=1)
                 username = decrypted_data[0]
                 message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
@@ -952,7 +948,7 @@ def check_rsa_keys_available():
     public_key, encrypted_private_key = cursor.fetchone()
     if public_key is None:
         return False
-    CONTROLLER.make_database_fernet_key()
+    CONTROLLER.make_fernet_key()
     private_key = decrypt_key(encrypted_private_key)
     public_key = pickle.loads(public_key)
     return public_key, private_key
@@ -960,7 +956,7 @@ def check_rsa_keys_available():
 #T0D0 - Test decryption of RSA keys DONE
 #Decrypt keys
 def decrypt_key(encrypted_private_key):
-    private_key = pickle.loads(CONTROLLER.fernet_database_key.decrypt(encrypted_private_key))
+    private_key = pickle.loads(CONTROLLER.fernet_key.decrypt(encrypted_private_key))
     return private_key
 
 #T0D0 - RSA keys encryption needs to be tested DONE

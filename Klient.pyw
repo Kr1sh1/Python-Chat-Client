@@ -147,7 +147,6 @@ class LoginWindow(QMainWindow, login_window):
 
         #Retrieving results from the query just executed
         payload = cursor.fetchone()
-        #Type error (because only None was returned, yet we expected two return values) thrown when there weren't any matches for the condition username=username
 
         if payload is None:
             #Updating message box in the GUI

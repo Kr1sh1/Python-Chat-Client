@@ -46,10 +46,9 @@ class RSACrypt():
         return self.__public_key , self.__private_key
 
     #Encrypts message using public key of receiever
-    def encrypt_message(self, message, pub_key):
-        message_bytes = message.encode("utf8")
-        encrypted_message = rsa.encrypt(message_bytes, pub_key)
-        return encrypted_message
+    def encrypt_message(self, key, pub_key):
+        encrypted_key = rsa.encrypt(key, pub_key)
+        return encrypted_key
 
     #Decrypts message using this user's private key
     def decrypt_message(self, encrypted_message):
@@ -533,9 +532,8 @@ class WindowController():
         connection.close()
 
     def make_message_fernet_key(self):
-        salt = os.urandom(16)
-        AES_KEY = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", bytes(CONTROLLER.password, encoding="utf-8"), salt, 100000, dklen=32))
-        self.fernet_message_key = Fernet(AES_KEY)
+        self.AES_KEY = Fernet.generate_key()
+        self.fernet_message_key = Fernet(self.AES_KEY)
 
     def login(self):
         self.WINDOW1 = LoginWindow()
@@ -684,7 +682,7 @@ def table_exists(cursor: object, table_name: str) -> bool:
 def exit_program():
     sys.exit()
 
-#TODO - Messages are limited to 501 bytes with current implementation
+#T0D0 - Messages are limited to 501 bytes with current implementation - DONE
 #Probably should do something about that. Possible fix is exchanging AES keys through RSA, then using those to encrypt and decrypt data
 #As there is no max to amount of data when encrypting with AES
 
@@ -711,7 +709,7 @@ def send_message(selected_user: str, message: str) -> None:
     PUBLIC_KEY = client[2]
     RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
-    encrypted_message = MAGIC_PASS + str([CONTROLLER.fernet_message_key.encrypt(username_message.encode("utf-8")), RSA_ENCRYPTION.encrypt_message(CONTROLLER.fernet_message_key, PUBLIC_KEY), RSA_SIGNATURE])
+    encrypted_message = MAGIC_PASS + str([CONTROLLER.fernet_message_key.encrypt(username_message.encode("utf-8")), RSA_ENCRYPTION.encrypt_message(CONTROLLER.AES_KEY, PUBLIC_KEY), RSA_SIGNATURE])
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
         # Connect to server and send data
@@ -767,18 +765,12 @@ def receive_messages():
             if data.startswith(MAGIC_PASS):
                 data = data.split(",", maxsplit=1)[1]
 
-                #Previously I was using eval to turn a string representation of a list into a list
-                #Use of eval can be dangerous as it evaluates everything as python code, so code injections are a risk
-                #So I found an alternative, ast.literal_eval
-                #ast.literal_eval is incapable of operating on anything but python data types
-                #So while it can turn "[]" into [], it cannot turn "5+5" into 10, instead resulting in a thrown exception
-
                 encrypted_data = ast.literal_eval(data)[0]
                 encrypted_key = ast.literal_eval(data)[1]
                 signature = ast.literal_eval(data)[2]
             
-                decrypted_key = RSA_ENCRYPTION.decrypt_message(encrypted_key)
-                decrypted_data = Fernet(decrypted_key).decrypt(encrypted_data)
+                decrypted_key = Fernet(RSA_ENCRYPTION.decrypt_message(encrypted_key))
+                decrypted_data = decrypted_key.decrypt(encrypted_data).decode(encoding="utf8")
                 decrypted_data = decrypted_data.split(",", maxsplit=1)
                 username = decrypted_data[0]
                 message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
@@ -788,10 +780,7 @@ def receive_messages():
                 user_pub_key = clients_online.get(address[0])[2]
                 clients_online_lock.release()
 
-                if rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
-                    pass
-                    #print("Message verified")
-                else:
+                if not rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
                     print("Received possibly tampered message")
                     return
 

@@ -104,14 +104,12 @@ class LoginWindow(QMainWindow, login_window):
             #Updating message box in the GUI
             self.InformationLabel.setText("Values must be entered for both fields")
             self.InformationLabel.setStyleSheet('color: red')
-            #print("Values must be entered for both fields")
             return True
 
         #If any illegal characters are in the username, then this will return True, else False
         if any(iterable):
             self.InformationLabel.setText("Illegal characters in username. No spaces, commas, slashes or speech marks are permitted")
             self.InformationLabel.setStyleSheet('color: red')
-            #print("Illegal characters in username")
             return True
 
         return False
@@ -135,7 +133,6 @@ class LoginWindow(QMainWindow, login_window):
             #Updating message box in the GUI
             self.InformationLabel.setText("Database file missing or empty. Make a new account.")
             self.InformationLabel.setStyleSheet('color: red')
-            #print("Database file missing or empty. Make a new account.")
             connection.close()
             return
 
@@ -151,7 +148,6 @@ class LoginWindow(QMainWindow, login_window):
             #Updating message box in the GUI
             self.InformationLabel.setText("Incorrect Username")
             self.InformationLabel.setStyleSheet('color: red')
-            #print("Incorrect username")
             connection.close()
             return
 
@@ -238,7 +234,6 @@ class LoginWindow(QMainWindow, login_window):
         #Updating message box in the GUI
         self.InformationLabel.setText("Registration complete!")
         self.InformationLabel.setStyleSheet('color: green')
-        #print("registration complete!")
 
     #Executed when dark mode button pressed
     #Updates stylesheets of GUI objects
@@ -829,7 +824,7 @@ def broadcast_self(username):
     while True:
         sock.sendto(MESSAGE, ('<broadcast>', PORT))
         #print("Broadcasting...")
-        sleep(0.1)
+        sleep(0.2)
 
 #T0D0-FIXED#
 #Test eval replacement ast.literal_eval is functioning correctly
@@ -848,7 +843,6 @@ def detect_other_clients():
             data = data.decode("utf-8").split(",", maxsplit=2)
             username = data[1]
             PUBLIC_KEY = pickle.loads(ast.literal_eval(data[2])[0])
-            #print(f"got service announcement from: {username}")
             update_online_clients([addr[0], username, PUBLIC_KEY])
 
 #Remove clients that haven't broadcasted in the last 3 seconds from our dictionary
@@ -893,7 +887,6 @@ def update_online_clients(client_data):
             if value[3] == True:
                 #Updating the timestamp and online status
                 value[0] = time()
-                value[3] = True
                 clients_online[key] = value
                 clients_online_lock.release()
                 return

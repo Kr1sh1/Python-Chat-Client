@@ -19,10 +19,6 @@ from PyQt5 import QtCore, QtWidgets
 from login_window import Ui_MainWindow as login_window
 from main_window import Ui_MainWindow as main_window
 
-#Thread lock prevents multiple threads from accessing certain variable simultaneously
-clients_online = {}
-clients_online_lock = threading.Lock()
-
 #The RSACrypt class provides in a simple interface the methods to encrypt or decrypt messages using the RSA algorithm
 class RSACrypt():
     def __init__(self):
@@ -538,6 +534,10 @@ class WindowController():
         global sock
         global RSA_ENCRYPTION
 
+        #Thread lock prevents multiple threads from accessing certain variable simultaneously
+        self.clients_online = {}
+        self.clients_online_lock = threading.Lock()
+
         dict_list_items = {}
         self.username = self.WINDOW1.username
         self.password = self.WINDOW1.password
@@ -692,9 +692,9 @@ def send_message(selected_user: str, message: str) -> None:
     username_message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
 
-    clients_online_lock.acquire()
-    client = clients_online.get(selected_user_ip)
-    clients_online_lock.release()
+    CONTROLLER.clients_online_lock.acquire()
+    client = CONTROLLER.clients_online.get(selected_user_ip)
+    CONTROLLER.clients_online_lock.release()
 
     if client[3] is False:
         message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
@@ -771,9 +771,9 @@ def receive_messages():
                 message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
                 selected_user = username + " " + address[0]
 
-                clients_online_lock.acquire()
-                user_pub_key = clients_online.get(address[0])[2]
-                clients_online_lock.release()
+                CONTROLLER.clients_online_lock.acquire()
+                user_pub_key = CONTROLLER.clients_online.get(address[0])[2]
+                CONTROLLER.clients_online_lock.release()
 
                 if not rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
                     print("Received possibly tampered message")
@@ -847,63 +847,59 @@ def detect_other_clients():
 
 #Remove clients that haven't broadcasted in the last 3 seconds from our dictionary
 def remove_offline_clients():
-    #Global variable lets us access this variable outside of this function
-    global clients_online
     while True:
-        clients_online_lock.acquire()
-        for key, value in clients_online.items():
+        CONTROLLER.clients_online_lock.acquire()
+        for key, value in CONTROLLER.clients_online.items():
             #If broadcast hasn't been received in the last 2 seconds, this condition is true
             #The client is then removed from our dictionary
             if (time()-value[0]) > 1:
                 value[3] = False
-                clients_online[key] = value
+                CONTROLLER.clients_online[key] = value
                 client_data = [key, value[1]]
                 remove_client_from_online_list(client_data)
 
         number_of_clients_online = 0
-        for item in clients_online.items():
+        for item in CONTROLLER.clients_online.items():
             if item[1][3] == True:
                 number_of_clients_online += 1
 
         CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
-        clients_online_lock.release()
+        CONTROLLER.clients_online_lock.release()
         sleep(0.1)
 
 #Everytime a broadcast is detected, this function is run
 #Existing clients will have the time stamp of their last broadcast updated
 #New clients will be added to our dictionary
 def update_online_clients(client_data):
-    global clients_online
-    
-    clients_online_lock.acquire()
+    CONTROLLER.clients_online_lock.acquire()
 
     number_of_clients_online = 0
-    for item in clients_online.items():
+    for item in CONTROLLER.clients_online.items():
         if item[1][3] == True:
             number_of_clients_online += 1
 
-    for key, value in clients_online.items():
+    for key, value in CONTROLLER.clients_online.items():
         if key == client_data[0]:
             if value[3] == True:
                 #Updating the timestamp and online status
                 value[0] = time()
-                clients_online[key] = value
-                clients_online_lock.release()
+                CONTROLLER.clients_online[key] = value
+                CONTROLLER.clients_online_lock.release()
                 return
             
             value[0] = time()
             value[3] = True
-            clients_online[key] = value
+            CONTROLLER.clients_online[key] = value
             add_client_to_online_list(client_data)
             CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
-            clients_online_lock.release()
+            CONTROLLER.clients_online_lock.release()
             return
 
     #Adding client to dictionary
-    clients_online[client_data[0]] = [time(), client_data[1], client_data[2], True]
+    CONTROLLER.clients_online[client_data[0]] = [time(), client_data[1], client_data[2], True]
     add_client_to_online_list(client_data)
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
-    clients_online_lock.release()
+    CONTROLLER.clients_online_lock.release()
 
 #T0D0-FIXED#
 #Make sure new implementation of saving item objects in dictionary is working

@@ -70,8 +70,7 @@ class Stack():
     def peek(self):
         return self.items[-1]
 
-#T0D0 - Make commas illegal characters in a username DONE + other characters
-#Main class for the login window
+#Class for login window
 class LoginWindow(QMainWindow, login_window):
 
     def __init__(self):
@@ -125,7 +124,7 @@ class LoginWindow(QMainWindow, login_window):
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
 
-        if not table_exists(cursor, "users"):
+        if not table_exists(cursor, "Users"):
             #Updating message box in the GUI
             self.InformationLabel.setText("Database file missing or empty. Make a new account.")
             self.InformationLabel.setStyleSheet('color: red')
@@ -133,9 +132,9 @@ class LoginWindow(QMainWindow, login_window):
             return
 
         #SQL query to retrieve the salted-hashed password and the salt used
-        cursor.execute("""SELECT passwordHash, salt
-                        FROM users
-                        WHERE username=?""", (username,))
+        cursor.execute("""SELECT PasswordHash, Salt
+                        FROM Users
+                        WHERE Username=?""", (username,))
 
         #Retrieving results from the query just executed
         payload = cursor.fetchone()
@@ -150,7 +149,7 @@ class LoginWindow(QMainWindow, login_window):
         password_hash, salt = payload[0], payload[1]
 
         #hashing the password with the retrieved salt using the method hash_password
-        hashed_password= hash_password(password, salt)[0]
+        hashed_password = hash_password(password, salt)[0]
 
         #Comparing newly hashed password to the existing hashed password in the database
         if password_hash == hashed_password:
@@ -158,26 +157,14 @@ class LoginWindow(QMainWindow, login_window):
             self.InformationLabel.setText("Login successful")
             self.InformationLabel.setStyleSheet('color: green')
             self.InformationLabel.repaint()
-            #print("login successful")
 
         else:
             #Updating message box in the GUI
             self.InformationLabel.setText("Incorrect password")
             self.InformationLabel.setStyleSheet('color: red')
-            #print("Incorrect password")
             self.PasswordLine.setText("")
             connection.close()
             return
-
-        if not table_exists(cursor, "messages"):
-            #Table doesn't exist so we recreate it
-            cursor.execute("""CREATE TABLE messages
-                        (username TEXT,
-                        otherParty TEXT,
-                        date BLOB,
-                        message BLOB)""")
-
-            connection.commit()
 
         connection.close()
         self.username = username
@@ -195,34 +182,27 @@ class LoginWindow(QMainWindow, login_window):
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
 
-        if not table_exists(cursor, "users"):
-            #Table doesn't exist so we recreate it
-            cursor.execute("""CREATE TABLE users
-                        (username TEXT,
-                        passwordHash BLOB,
-                        salt BLOB,
-                        public_key BLOB,
-                        encrypted_private_key BLOB,
-                        salt_2 BLOB)""")
+        if not table_exists(cursor, "Users"):
+            #Tables doesn't exist so we recreate it
+            create_database(cursor)
 
         else:
             #Checking if the username is already in use by someone else
-            cursor.execute("""SELECT username
-                            FROM users
-                            WHERE username=?""", (username,))
+            cursor.execute("""SELECT Username
+                            FROM Users
+                            WHERE Username=?""", (username,))
             payload = cursor.fetchone()
 
             #If the username already exists, then payload will have a value
             if payload is not None:
                 self.InformationLabel.setText("Username already exists, try a different one")
                 self.InformationLabel.setStyleSheet('color: red')
-                #print("Username already exists, try a different one")
                 connection.close()
                 return
 
         hashed_password, salt = hash_password(password)
 
-        cursor.execute("""INSERT INTO users (username, passwordHash, salt)
+        cursor.execute("""INSERT INTO Users (Username, PasswordHash, Salt)
                         VALUES (?,?,?)""", (username, hashed_password, salt))
 
         connection.commit()
@@ -335,9 +315,7 @@ class LoginWindow(QMainWindow, login_window):
                                           "border-color: blue"
                                           "}")
 
-#T0D0 - Create stacks for history feature - DONE TEST PROPERLY
-
-#T0D0 - Update stylesheets to better color scheme for dynamically created objects DONE
+#Class for main window
 class MainWindow(QMainWindow, main_window):
     create_a_tab = QtCore.pyqtSignal()
     def __init__(self):
@@ -346,7 +324,6 @@ class MainWindow(QMainWindow, main_window):
         #Initialises the GUI
         self.setupUi(self)
         self.show()
-        self.USER = CONTROLLER.username
 
         #On click of these buttons, the function named as a parameter is executed
         self.actionExit.triggered.connect(exit_program)
@@ -498,10 +475,8 @@ class MainWindow(QMainWindow, main_window):
         if self.stack_up.is_empty() or self.stack_up.peek() != message:
             self.stack_up.push(message)
 
-        #print(f"The following message will be sent to: {selected_user} \n\n {message}")
         send_message(selected_user, message)
 
-#T0D0 - InformationLabel won't update correctly, maybe try and fix (low priority) - FIXED by forcing repaint of information label
 #Controls several things, such as which windows appear when and when to start multiple threads
 class WindowController():
     def __init__(self):
@@ -511,9 +486,9 @@ class WindowController():
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
     
-        cursor.execute("""SELECT salt_2 
-                FROM users 
-                WHERE username=?""",
+        cursor.execute("""SELECT RSASalt 
+                FROM Users
+                WHERE Username=?""",
                 (CONTROLLER.username,))
 
         salt = cursor.fetchone()[0]
@@ -537,6 +512,7 @@ class WindowController():
         #Thread lock prevents multiple threads from accessing certain variable simultaneously
         self.clients_online = {}
         self.clients_online_lock = threading.Lock()
+        self.database_lock = threading.Lock()
 
         dict_list_items = {}
         self.username = self.WINDOW1.username
@@ -583,6 +559,50 @@ class WindowController():
         t3.start()
         t4.start()
 
+def create_pair_id(cursor, OtherParty):
+    cursor.execute("""SELECT Count(*)
+                    FROM CommunicationPairs""")
+    PairID = cursor.fetchone()
+    cursor.execute("""INSERT INTO CommunicationPairs (PairID, OtherParty, Username) 
+                    VALUES (?,?,?)""", (PairID[0], OtherParty, CONTROLLER.username))
+
+    return PairID
+
+def get_pair_id(cursor, OtherParty):
+    cursor.execute("""SELECT PairID
+                    FROM CommunicationPairs
+                    WHERE Username=?
+                    AND OtherParty=?""", (CONTROLLER.username, OtherParty))
+
+    PairID = cursor.fetchone()
+
+    if PairID is None:
+        PairID = create_pair_id(cursor, OtherParty)
+
+    return PairID[0]
+
+def create_database(cursor):
+    cursor.execute("""CREATE TABLE Users
+                (Username TEXT PRIMARY KEY,
+                PasswordHash BLOB,
+                Salt BLOB,
+                Public_Key BLOB,
+                Encrypted_Private_Key BLOB,
+                RSASalt BLOB)""")
+
+    cursor.execute("""CREATE TABLE CommunicationPairs
+                (PairID INTEGER PRIMARY KEY,
+                OtherParty TEXT,
+                Username TEXT,
+                FOREIGN KEY(Username) REFERENCES Users(Username))""")
+
+    cursor.execute("""CREATE TABLE Messages
+                (MessageID INTEGER PRIMARY KEY,
+                PairID INTEGER,
+                Date BLOB,
+                Message BLOB,
+                FOREIGN KEY(PairID) REFERENCES CommunicationPairs(PairID))""")
+
 def merge_sort(data: list) -> list:
     if len(data) == 1:
         return data
@@ -617,13 +637,15 @@ def retrieve_messages(user: str) -> None:
     tab = CONTROLLER.WINDOW2.tabs
     message_box = tab.get(user)[0]
 
+    CONTROLLER.database_lock.acquire()
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
 
-    cursor.execute("""SELECT date, message
-                    FROM messages
-                    WHERE username=?
-                    AND otherParty=?""", (CONTROLLER.username, user))
+    cursor.execute("""SELECT Date, Message
+                    FROM Messages, CommunicationPairs
+                    WHERE Messages.PairID = CommunicationPairs.PairID
+                    AND CommunicationPairs.Username=?
+                    AND CommunicationPairs.OtherParty=?""", (CONTROLLER.username, user))
 
     time_message = []
 
@@ -636,6 +658,7 @@ def retrieve_messages(user: str) -> None:
         
     #No messages available
     if not time_message:
+        CONTROLLER.database_lock.release()
         return
 
     sorted_messages = merge_sort(time_message)
@@ -644,8 +667,10 @@ def retrieve_messages(user: str) -> None:
         message_box.append(x[1])
 
     connection.close()
+    CONTROLLER.database_lock.release()
 
-def save_message(message: str, otherParty: str) -> None:
+def save_message(message: str, OtherParty: str) -> None:
+    CONTROLLER.database_lock.acquire()
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
 
@@ -654,11 +679,19 @@ def save_message(message: str, otherParty: str) -> None:
 
     encrypted_message = CONTROLLER.fernet_database_key.encrypt(bytes(message, encoding="utf8"))
 
-    cursor.execute("""INSERT INTO messages (username, otherParty, date, message)
-                    VALUES (?,?,?,?)""", (CONTROLLER.username, otherParty, date, encrypted_message))
+    PairID = get_pair_id(cursor, OtherParty)
+
+    cursor.execute("""SELECT Count(*)
+                    FROM Messages""")
+
+    MessageID = cursor.fetchall()[0][0]
+
+    cursor.execute("""INSERT INTO Messages (MessageID, PairID, Date, Message)
+                    VALUES (?,?,?,?)""", (MessageID, PairID, date, encrypted_message))
 
     connection.commit()
     connection.close()
+    CONTROLLER.database_lock.release()
 
 def table_exists(cursor: object, table_name: str) -> bool:
     cursor.execute("""SELECT name 
@@ -677,11 +710,6 @@ def table_exists(cursor: object, table_name: str) -> bool:
 def exit_program():
     sys.exit()
 
-#T0D0 - Messages are limited to 501 bytes with current implementation - DONE
-#Probably should do something about that. Possible fix is exchanging AES keys through RSA, then using those to encrypt and decrypt data
-#As there is no max to amount of data when encrypting with AES
-
-#T0D0 - Don't attempt to send messages if the user went offline - DONE
 def send_message(selected_user: str, message: str) -> None:
     PORT = 8001
     MAGIC_PASS = "iJ9d2J,"
@@ -723,13 +751,6 @@ def send_message(selected_user: str, message: str) -> None:
     message_box.append(message)
     save_message(message, selected_user)
 
-#T0D0 - Implement verification of message to ensure the sender isn't lying about their identity - DONE NEEDS TESTING
-
-#T0D0-FIXED#
-#Test eval replacement ast.literal_eval is functioning correctly
-
-#T0D0-FIXED#
-#Fix colour of text appearing in message box
 def receive_messages():
     PORT = 8001
     MAGIC_PASS = "iJ9d2J"
@@ -791,12 +812,7 @@ def receive_messages():
                     message_box = client[0]
                     message_box.append(message)
 
-#Function to hash password
-
-#If the function hashPassword is only given one arguement, the password, a random salt is chosen
-#Else if a salt in also given, the password is hashed with that salt.
-#This is so new passwords can be created with a new salt, and so existing passwords can be hashed
-#with their salt to check against a hash in the database.
+#Function to hash password with supplied salt, or randomly generated one if not supplied
 
 def hash_password(password: str, salt: bytes=None) -> bytes:
     password_bytes = bytes(password, encoding="utf-8")
@@ -823,11 +839,7 @@ def broadcast_self(username):
     #Broadcast the message every 2 seconds
     while True:
         sock.sendto(MESSAGE, ('<broadcast>', PORT))
-        #print("Broadcasting...")
         sleep(0.2)
-
-#T0D0-FIXED#
-#Test eval replacement ast.literal_eval is functioning correctly
 
 #This function detects broadcasts on port 8000 made by other instances of this program.
 def detect_other_clients():
@@ -837,7 +849,6 @@ def detect_other_clients():
 
     while True:
         data, addr = sock.recvfrom(4096)
-        #print(f"Recieved some data, not sure if compatible: {data}{addr}")
         #Making sure the broadcast is meant for us, and we aren't just detecting our own broadcast
         if data.startswith(bytes(MAGIC_PASS, encoding="utf-8")) and addr[0] != IP_ADDRESS:
             data = data.decode("utf-8").split(",", maxsplit=2)
@@ -845,7 +856,7 @@ def detect_other_clients():
             PUBLIC_KEY = pickle.loads(ast.literal_eval(data[2])[0])
             update_online_clients([addr[0], username, PUBLIC_KEY])
 
-#Remove clients that haven't broadcasted in the last 3 seconds from our dictionary
+#Remove clients that haven't broadcasted in the last 1 second from our dictionary
 def remove_offline_clients():
     while True:
         CONTROLLER.clients_online_lock.acquire()
@@ -901,8 +912,6 @@ def update_online_clients(client_data):
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
     CONTROLLER.clients_online_lock.release()
 
-#T0D0-FIXED#
-#Make sure new implementation of saving item objects in dictionary is working
 #Updating the list users click on in the GUI
 def remove_client_from_online_list(client_data):
     global dict_list_items
@@ -915,16 +924,13 @@ def add_client_to_online_list(client_data):
     CONTROLLER.WINDOW2.listWidget.addItem(item)
     dict_list_items[client_data[1] + " " + client_data[0]] = item
 
-#T0D0 DONE
-#Check if keys are available in database
-#Decrypt them if available
-#Return list PublicKey, PrivateKey (or False)
+#Return (PublicKey, PrivateKey) | (False)
 def check_rsa_keys_available():
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
-    cursor.execute("""SELECT public_key, encrypted_private_key 
-                      FROM users 
-                      WHERE username=?""",
+    cursor.execute("""SELECT Public_Key, Encrypted_Private_Key 
+                      FROM Users
+                      WHERE Username=?""",
                       (CONTROLLER.username,))
     public_key, encrypted_private_key = cursor.fetchone()
     if public_key is None:
@@ -934,13 +940,11 @@ def check_rsa_keys_available():
     public_key = pickle.loads(public_key)
     return public_key, private_key
 
-#T0D0 - Test decryption of RSA keys DONE
 #Decrypt keys
 def decrypt_key(encrypted_private_key):
     private_key = pickle.loads(CONTROLLER.fernet_database_key.decrypt(encrypted_private_key))
     return private_key
 
-#T0D0 - RSA keys encryption needs to be tested DONE
 #Encrypt keys
 def encrypt_key(private_key):
     salt = os.urandom(16)
@@ -950,17 +954,15 @@ def encrypt_key(private_key):
     encrypted_private_key = f.encrypt(bytes_priv_key)
     return encrypted_private_key, salt
 
-#T0D0 - Saving encrypted RSA keys to database needs to be tested DONE
 #Save keys to database
-#columns public_key and private_key
 def save_rsa_keys(public_key, private_key):
     encrypted_private_key, salt = encrypt_key(private_key)
     bytes_pub_key = pickle.dumps(public_key)
     connection = sqlite3.connect("User-details.db")
     cursor = connection.cursor()
-    cursor.execute("""UPDATE users 
-                    SET public_key=?, encrypted_private_key=?, salt_2=? 
-                    WHERE username=?""", (
+    cursor.execute("""UPDATE Users 
+                    SET Public_Key=?, Encrypted_Private_Key=?, RSASalt=? 
+                    WHERE Username=?""", (
                     bytes_pub_key, encrypted_private_key, salt, CONTROLLER.username))
     connection.commit()
     connection.close()

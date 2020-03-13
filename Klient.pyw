@@ -70,6 +70,38 @@ class Stack():
     def peek(self):
         return self.items[-1]
 
+class NetworkObject():
+    def __init__(self):
+        self.encrypted_username = CONTROLLER.fernet_message_key.encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
+        self.encrypted_data = None
+        self.rsa_signature = None
+        self.encrypted_AES_key = None
+        self.fernet_key = None
+
+    def encrypt_data(self, data):
+        self.encrypted_data = CONTROLLER.fernet_message_key.encrypt(data)
+
+    def encrypt_AES_key(self, key, public_key):
+        self.encrypted_AES_key = RSA_ENCRYPTION.encrypt_message(key, public_key)
+
+class MessageObject(NetworkObject):
+    def __init__(self, data, rsa_signature, public_key):
+        super(MessageObject, self).__init__()
+        self.encrypt_data(bytes(data, encoding="utf-8"))
+        self.encrypt_AES_key(CONTROLLER.AES_KEY, public_key)
+        self.rsa_signature = rsa_signature
+
+    def get_message(self):
+        decrypted_AES_key = RSA_ENCRYPTION.decrypt_message(self.encrypted_AES_key)
+        self.fernet_key = Fernet(decrypted_AES_key)
+        return self.fernet_key.decrypt(self.encrypted_data).decode(encoding="utf-8")
+
+    def get_username(self):
+        return self.fernet_key.decrypt(self.encrypted_username).decode(encoding="utf-8")
+
+    def get_signature(self):
+        return self.rsa_signature
+
 #Class for login window
 class LoginWindow(QMainWindow, login_window):
 
@@ -712,12 +744,9 @@ def exit_program():
 
 def send_message(selected_user: str, message: str) -> None:
     PORT = 8001
-    MAGIC_PASS = "iJ9d2J,"
-    IP_ADDRESS = socket.gethostbyname(socket.gethostname())
-    USER = bytes(CONTROLLER.username + " " + IP_ADDRESS, encoding="utf-8")
+    MAGIC_PASS = b"iJ9d2J,"
     tab = CONTROLLER.WINDOW2.tabs
     message_box = tab.get(selected_user)[0]
-    username_message = CONTROLLER.username + "," + message
     selected_user_ip = selected_user.split(" ")[-1]
 
     CONTROLLER.clients_online_lock.acquire()
@@ -730,9 +759,9 @@ def send_message(selected_user: str, message: str) -> None:
         return
 
     PUBLIC_KEY = client[2]
-    RSA_SIGNATURE = rsa.sign(USER, RSA_ENCRYPTION.get_private_key(), "SHA-256")
+    RSA_SIGNATURE = rsa.sign(message.encode(encoding="utf-8"), RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
-    encrypted_message = MAGIC_PASS + str([CONTROLLER.fernet_message_key.encrypt(username_message.encode("utf-8")), RSA_ENCRYPTION.encrypt_message(CONTROLLER.AES_KEY, PUBLIC_KEY), RSA_SIGNATURE])
+    encrypted_message = MAGIC_PASS + pickle.dumps(MessageObject(message, RSA_SIGNATURE, PUBLIC_KEY))
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
         # Connect to server and send data
@@ -740,7 +769,7 @@ def send_message(selected_user: str, message: str) -> None:
         try:
             sending_socket.connect((selected_user_ip, PORT))
             length_of_data = str(len(encrypted_message)) + ":"
-            data = bytes(length_of_data + encrypted_message, encoding="utf-8")
+            data = bytes(length_of_data, encoding="utf-8") + encrypted_message
             sending_socket.sendall(data)
         except socket.timeout:
             message = "<font color = #F00>" + "Message not sent: User offline" + "</color>"
@@ -753,7 +782,7 @@ def send_message(selected_user: str, message: str) -> None:
 
 def receive_messages():
     PORT = 8001
-    MAGIC_PASS = "iJ9d2J"
+    MAGIC_PASS = b"iJ9d2J"
     receiving_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     receiving_socket.bind(("", PORT))
     receiving_socket.listen(5)
@@ -775,30 +804,30 @@ def receive_messages():
             while len(incoming_data) != message_size:
                 incoming_data.extend(sender.recv(1024))
 
-            data = incoming_data.decode(encoding="utf-8")
+            data = incoming_data
 
             #Making sure the message is meant for us
             if data.startswith(MAGIC_PASS):
-                data = data.split(",", maxsplit=1)[1]
+                data = data.split(b",", maxsplit=1)[1]
 
-                encrypted_data = ast.literal_eval(data)[0]
-                encrypted_key = ast.literal_eval(data)[1]
-                signature = ast.literal_eval(data)[2]
-            
-                decrypted_key = Fernet(RSA_ENCRYPTION.decrypt_message(encrypted_key))
-                decrypted_data = decrypted_key.decrypt(encrypted_data).decode(encoding="utf8")
-                decrypted_data = decrypted_data.split(",", maxsplit=1)
-                username = decrypted_data[0]
-                message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + decrypted_data[1] + "</color>"
+                message_object = pickle.loads(data)
+                message = message_object.get_message()
+                username = message_object.get_username()
+                signature = message_object.get_signature()
+
                 selected_user = username + " " + address[0]
 
                 CONTROLLER.clients_online_lock.acquire()
                 user_pub_key = CONTROLLER.clients_online.get(address[0])[2]
                 CONTROLLER.clients_online_lock.release()
 
-                if not rsa.verify(bytes(selected_user, encoding="utf-8"), signature, user_pub_key):
-                    print("Received possibly tampered message")
+                try:
+                    rsa.verify(message.encode(encoding="utf-8"), signature, user_pub_key)
+                except rsa.pkcs1.VerificationError:
+                    print("Verification Failed")
                     return
+
+                message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + message + "</color>"
 
                 save_message(message, selected_user)
 

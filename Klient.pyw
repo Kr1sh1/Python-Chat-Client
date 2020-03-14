@@ -24,22 +24,22 @@ class RSACrypt():
     def __init__(self):
         #The key generation process can take a while, taking advantage of multiple cores in the system will speed it up
         self.number_of_cpu_cores = multiprocessing.cpu_count()
-        self.__public_key , self.__private_key = None, None
+        self.public_key , self.__private_key = None, None
 
     def get_public_key(self):
-        return self.__public_key
+        return self.public_key
 
     def get_private_key(self):
         return self.__private_key
 
     #Updates private and public key of this user
     def update_keys(self, public_key, private_key):
-        self.__public_key , self.__private_key = public_key, private_key
+        self.public_key , self.__private_key = public_key, private_key
 
     #Generates a new pair of public and private keys
     def generate_new_keys(self):
-        self.__public_key , self.__private_key = rsa.newkeys(4096, poolsize=self.number_of_cpu_cores)
-        return self.__public_key , self.__private_key
+        self.public_key , self.__private_key = rsa.newkeys(4096, poolsize=self.number_of_cpu_cores)
+        return self.public_key , self.__private_key
 
     #Encrypts message using public key of receiever
     def encrypt_message(self, key, pub_key):
@@ -72,23 +72,27 @@ class Stack():
 
 class NetworkObject():
     def __init__(self):
-        self.encrypted_username = CONTROLLER.fernet_message_key.encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
+        self.encrypted_username = None
         self.encrypted_data = None
         self.rsa_signature = None
         self.encrypted_AES_key = None
         self.fernet_key = None
 
-    def encrypt_data(self, data):
-        self.encrypted_data = CONTROLLER.fernet_message_key.encrypt(data)
+    def encrypt_data(self, data, user):
+        self.encrypted_data = CONTROLLER.get_fernet_key(user)[0].encrypt(data)
 
     def encrypt_AES_key(self, key, public_key):
         self.encrypted_AES_key = RSA_ENCRYPTION.encrypt_message(key, public_key)
 
+    def encrypt_username(self, user):
+        self.encrypted_username = CONTROLLER.get_fernet_key(user)[0].encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
+
 class MessageObject(NetworkObject):
-    def __init__(self, data, rsa_signature, public_key):
+    def __init__(self, data, rsa_signature, public_key, user):
         super(MessageObject, self).__init__()
-        self.encrypt_data(bytes(data, encoding="utf-8"))
-        self.encrypt_AES_key(CONTROLLER.AES_KEY, public_key)
+        self.encrypt_data(bytes(data, encoding="utf-8"), user)
+        self.encrypt_AES_key(CONTROLLER.get_fernet_key(user)[1], public_key)
+        self.encrypt_username(user)
         self.rsa_signature = rsa_signature
 
     def get_message(self):
@@ -513,6 +517,7 @@ class MainWindow(QMainWindow, main_window):
 class WindowController():
     def __init__(self):
         self.login()
+        self.AES_KEYS = {}
 
     def make_database_fernet_key(self):
         connection = sqlite3.connect("User-details.db")
@@ -530,8 +535,17 @@ class WindowController():
         connection.close()
 
     def make_message_fernet_key(self):
-        self.AES_KEY = Fernet.generate_key()
-        self.fernet_message_key = Fernet(self.AES_KEY)
+        AES_KEY = Fernet.generate_key()
+        return Fernet(AES_KEY), AES_KEY
+
+    def get_fernet_key(self, user):
+        if user in self.AES_KEYS:
+            return self.AES_KEYS.get(user)
+        
+        fernet_key, AES_KEY = self.make_message_fernet_key()
+        self.AES_KEYS[user] = fernet_key, AES_KEY 
+
+        return fernet_key, AES_KEY
 
     def login(self):
         self.WINDOW1 = LoginWindow()
@@ -552,16 +566,14 @@ class WindowController():
 
         RSA_ENCRYPTION = RSACrypt()
 
-        self.make_message_fernet_key()
-
         #Checks if keys are available in database and updates them in RSACrypt class, else generates new keys
         keys = check_rsa_keys_available()
         if keys is False:
             self.WINDOW1.InformationLabel.setText("Generating RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
             self.WINDOW1.InformationLabel.repaint()
-            __public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
-            save_rsa_keys(__public_key, __private_key)
+            public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
+            save_rsa_keys(public_key, __private_key)
             CONTROLLER.make_database_fernet_key()
         else:
             self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
@@ -761,7 +773,7 @@ def send_message(selected_user: str, message: str) -> None:
     PUBLIC_KEY = client[2]
     RSA_SIGNATURE = rsa.sign(message.encode(encoding="utf-8"), RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
-    encrypted_message = MAGIC_PASS + pickle.dumps(MessageObject(message, RSA_SIGNATURE, PUBLIC_KEY))
+    encrypted_message = MAGIC_PASS + pickle.dumps(MessageObject(message, RSA_SIGNATURE, PUBLIC_KEY, selected_user))
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
         # Connect to server and send data

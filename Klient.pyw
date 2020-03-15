@@ -14,7 +14,7 @@ import base64
 from datetime import datetime
 from cryptography.fernet import Fernet
 from time import sleep, time
-from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton
+from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton, QFileDialog
 from PyQt5 import QtCore, QtWidgets
 from login_window import Ui_MainWindow as login_window
 from main_window import Ui_MainWindow as main_window
@@ -70,41 +70,68 @@ class Stack():
     def peek(self):
         return self.items[-1]
 
+#Base class for objects to be sent over the network
 class NetworkObject():
     def __init__(self):
-        self.encrypted_username = None
-        self.encrypted_data = None
-        self.rsa_signature = None
-        self.encrypted_AES_key = None
-        self.fernet_key = None
+        self._encrypted_username = None
+        self._encrypted_data = None
+        self._rsa_signature = None
+        self._encrypted_AES_key = None
+        self._fernet_key = None
 
-    def encrypt_data(self, data, user):
-        self.encrypted_data = CONTROLLER.get_fernet_key(user)[0].encrypt(data)
+    def _encrypt_data(self, data: bytes, user: str):
+        self._encrypted_data = CONTROLLER.get_fernet_key(user)[0].encrypt(data)
 
-    def encrypt_AES_key(self, key, public_key):
-        self.encrypted_AES_key = RSA_ENCRYPTION.encrypt_message(key, public_key)
+    def _encrypt_AES_key(self, key: bytes, public_key: bytes):
+        self._encrypted_AES_key = RSA_ENCRYPTION.encrypt_message(key, public_key)
 
-    def encrypt_username(self, user):
-        self.encrypted_username = CONTROLLER.get_fernet_key(user)[0].encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
+    def _encrypt_username(self, user: str):
+        self._encrypted_username = CONTROLLER.get_fernet_key(user)[0].encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
 
-class MessageObject(NetworkObject):
-    def __init__(self, data, rsa_signature, public_key, user):
-        super(MessageObject, self).__init__()
-        self.encrypt_data(bytes(data, encoding="utf-8"), user)
-        self.encrypt_AES_key(CONTROLLER.get_fernet_key(user)[1], public_key)
-        self.encrypt_username(user)
-        self.rsa_signature = rsa_signature
+    def store_rsa_signature(self, data):
+        self._rsa_signature = rsa.sign(data, RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
-    def get_message(self):
-        decrypted_AES_key = RSA_ENCRYPTION.decrypt_message(self.encrypted_AES_key)
-        self.fernet_key = Fernet(decrypted_AES_key)
-        return self.fernet_key.decrypt(self.encrypted_data).decode(encoding="utf-8")
+    def get_data(self):
+        decrypted_AES_key = RSA_ENCRYPTION.decrypt_message(self._encrypted_AES_key)
+        self._fernet_key = Fernet(decrypted_AES_key)
+        return self._fernet_key.decrypt(self._encrypted_data)
 
     def get_username(self):
-        return self.fernet_key.decrypt(self.encrypted_username).decode(encoding="utf-8")
+        return self._fernet_key.decrypt(self._encrypted_username).decode(encoding="utf-8")
 
     def get_signature(self):
-        return self.rsa_signature
+        return self._rsa_signature
+
+class MessageObject(NetworkObject):
+    def __init__(self, data: str, public_key, user: str):
+        super(MessageObject, self).__init__()
+        self._encrypt_data(bytes(data, encoding="utf-8"), user)
+        self._encrypt_AES_key(CONTROLLER.get_fernet_key(user)[1], public_key)
+        self._encrypt_username(user)
+        self.store_rsa_signature(data.encode(encoding="utf-8"))
+
+class FileObject(NetworkObject):
+    def __init__(self, filename: str, public_key, user: str):
+        super(FileObject, self).__init__()
+        self.__encrypted_filename = None
+        self._encrypt_AES_key(CONTROLLER.get_fernet_key(user)[1], public_key)
+        self._encrypt_data(self.__get_file_contents(filename), user)
+        self._encrypt_username(user)
+        self.__encrypt_filename(filename, user)
+        self.store_rsa_signature(self.__get_file_contents(filename))
+
+    def __encrypt_filename(self, filename, user):
+        filename = os.path.split(filename)[1]
+        self.__encrypted_filename = CONTROLLER.get_fernet_key(user)[0].encrypt(bytes(filename, encoding="utf-8"))
+
+    def __get_file_contents(self, filename):
+        with open(filename, "rb") as file_object:
+            file_contents = file_object.read()
+
+        return file_contents
+
+    def get_filename(self):
+        return self._fernet_key.decrypt(self.__encrypted_filename).decode(encoding="utf-8")
 
 #Class for login window
 class LoginWindow(QMainWindow, login_window):
@@ -205,7 +232,7 @@ class LoginWindow(QMainWindow, login_window):
         connection.close()
         self.username = username
         self.password = password
-        CONTROLLER.mainWindow()
+        CONTROLLER.main_window()
 
     #Executed when register button pressed
     def register(self):
@@ -354,6 +381,7 @@ class LoginWindow(QMainWindow, login_window):
 #Class for main window
 class MainWindow(QMainWindow, main_window):
     create_a_tab = QtCore.pyqtSignal()
+    save_file = QtCore.pyqtSignal()
     def __init__(self):
         super(MainWindow, self).__init__()
 
@@ -366,7 +394,12 @@ class MainWindow(QMainWindow, main_window):
         self.listWidget.itemDoubleClicked.connect(self.item_changed)
 
         self.selected_user_arg = None
+        self.file_contents = None
+        self.file_name = None
+        self.receiving_message_box = None
+
         self.create_a_tab.connect(lambda: self.create_tab(self.selected_user_arg))
+        self.save_file.connect(self.save_file_dialog)
 
         #This dictionary is used to keep track of dynamically generated objects
         self.tabs = {}
@@ -433,11 +466,13 @@ class MainWindow(QMainWindow, main_window):
 
         message_box, vertlayout_2 = self.create_messagebox(tab)
         text_entry, horizlayout_2 = self.create_text_edit_box(tab)
+        send_file_button = self.create_send_file_button(tab, horizlayout_2)
         enter_button = self.create_enter_button(tab, horizlayout_2)
 
         vertlayout_2.addLayout(horizlayout_2)
         verticalLayout_4.addLayout(vertlayout_2)
 
+        send_file_button.clicked.connect(lambda: self.open_file_dialog(selected_user))
         enter_button.clicked.connect(lambda: self.message_entered(text_entry, selected_user))
         message_box.verticalScrollBar().rangeChanged.connect(lambda minimum, maximum: message_box.verticalScrollBar().setSliderPosition(maximum))
 
@@ -469,7 +504,7 @@ class MainWindow(QMainWindow, main_window):
         horizontalLayout_2 = QtWidgets.QHBoxLayout()
         horizontalLayout_2.setObjectName("horizontalLayout_2")
         plainTextEdit = QPlainTextEdit(tab)
-        plainTextEdit.setStyleSheet("background-color: #F00;")
+        plainTextEdit.setStyleSheet("background-color: #707070; border-top-left-radius: 10px; border-bottom-left-radius: 10px; border-top-right-radius: 0px; border-bottom-right-radius: 0px")
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -480,16 +515,41 @@ class MainWindow(QMainWindow, main_window):
         horizontalLayout_2.addWidget(plainTextEdit)
         return plainTextEdit, horizontalLayout_2
 
+    def create_send_file_button(self, tab, horizontalLayout_2):
+        pushButton = QPushButton(tab)
+        pushButton.setStyleSheet("QPushButton {"
+                                 "background-color: #990099;"
+                                 "border-color: rgb(225, 85, 0);"
+                                 "border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
+                                 "}"
+        
+                                 "QPushButton::hover {"
+                                 "background-color: #890099;"
+                                 "border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
+                                 "}")
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(pushButton.sizePolicy().hasHeightForWidth())
+        pushButton.setSizePolicy(sizePolicy)
+        pushButton.setMaximumSize(QtCore.QSize(75, 75))
+        pushButton.setObjectName("pushButton2")
+        horizontalLayout_2.addWidget(pushButton)
+        pushButton.setText("SEND \n FILE")
+        return pushButton
+
     #This created an enter button that sends the message you type in the text edit box
     def create_enter_button(self, tab, horizontalLayout_2):
         pushButton = QPushButton(tab)
         pushButton.setStyleSheet("QPushButton {"
                                  "background-color: #00bf0a;"
                                  "border-color: rgb(225, 85, 0);"
+                                 "border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-top-right-radius: 10px; border-bottom-right-radius: 10px;"
                                  "}"
         
                                  "QPushButton::hover {"
                                  "background-color: #00a609;"
+                                 "border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-top-right-radius: 10px; border-bottom-right-radius: 10px;"
                                  "}")
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
@@ -499,8 +559,30 @@ class MainWindow(QMainWindow, main_window):
         pushButton.setMaximumSize(QtCore.QSize(75, 75))
         pushButton.setObjectName("pushButton")
         horizontalLayout_2.addWidget(pushButton)
-        pushButton.setText("SND \n MSG")
+        pushButton.setText("SEND \n MESSAGE")
         return pushButton
+
+    def open_file_dialog(self, selected_user):
+        filename = QFileDialog.getOpenFileName(self)[0]
+        if not filename:
+            return
+
+        send_file(selected_user, filename)
+
+    def save_file_dialog(self):
+        save_file_name = QFileDialog.getSaveFileName(self, "Save As", self.file_name)[0]
+        if not save_file_name:
+            self.file_contents = None
+            self.file_name = None
+            message = f"<font color = #F00>File discarded</color>"
+            self.receiving_message_box.append(message)
+            return
+        
+        with open(save_file_name, "wb") as file_object:
+            file_object.write(self.file_contents)
+
+        message = f"<font color = #0F0>File saved</color>"
+        self.receiving_message_box.append(message)
 
     #Adds message to message box and calls function to send message
     def message_entered(self, text_entry, selected_user):
@@ -517,7 +599,7 @@ class MainWindow(QMainWindow, main_window):
 class WindowController():
     def __init__(self):
         self.login()
-        self.AES_KEYS = {}
+        self.__AES_KEYS = {}
 
     def make_database_fernet_key(self):
         connection = sqlite3.connect("User-details.db")
@@ -539,18 +621,18 @@ class WindowController():
         return Fernet(AES_KEY), AES_KEY
 
     def get_fernet_key(self, user):
-        if user in self.AES_KEYS:
-            return self.AES_KEYS.get(user)
+        if user in self.__AES_KEYS:
+            return self.__AES_KEYS.get(user)
         
         fernet_key, AES_KEY = self.make_message_fernet_key()
-        self.AES_KEYS[user] = fernet_key, AES_KEY 
+        self.__AES_KEYS[user] = fernet_key, AES_KEY 
 
         return fernet_key, AES_KEY
 
     def login(self):
         self.WINDOW1 = LoginWindow()
 
-    def mainWindow(self):
+    def main_window(self):
         global dict_list_items
         global sock
         global RSA_ENCRYPTION
@@ -595,6 +677,7 @@ class WindowController():
         t2 = threading.Thread(target=detect_other_clients, daemon=True)
         t3 = threading.Thread(target=remove_offline_clients, daemon=True)
         t4 = threading.Thread(target=receive_messages, daemon=True)
+        t5 = threading.Thread(target=receive_files, daemon=True)
 
         self.WINDOW2 = MainWindow()
 
@@ -602,6 +685,7 @@ class WindowController():
         t2.start()
         t3.start()
         t4.start()
+        t5.start()
 
 def create_pair_id(cursor, OtherParty):
     cursor.execute("""SELECT Count(*)
@@ -754,6 +838,42 @@ def table_exists(cursor: object, table_name: str) -> bool:
 def exit_program():
     sys.exit()
 
+def send_file(selected_user: str, filename: str):
+    PORT = 8002
+    MAGIC_PASS = b"IJ6d5J,"
+    tab = CONTROLLER.WINDOW2.tabs
+    message_box = tab.get(selected_user)[0]
+    selected_user_ip = selected_user.split(" ")[-1]
+
+    CONTROLLER.clients_online_lock.acquire()
+    client = CONTROLLER.clients_online.get(selected_user_ip)
+    CONTROLLER.clients_online_lock.release()
+
+    if client[3] is False:
+        message = "<font color = #F00>" + "File not sent: User offline" + "</color>"
+        message_box.append(message)
+        return
+
+    PUBLIC_KEY = client[2]
+
+    encrypted_message = MAGIC_PASS + pickle.dumps(FileObject(filename, PUBLIC_KEY, selected_user))
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
+        # Connect to server and send data
+        sending_socket.settimeout(2)
+        try:
+            sending_socket.connect((selected_user_ip, PORT))
+            length_of_data = str(len(encrypted_message)) + ":"
+            data = bytes(length_of_data, encoding="utf-8") + encrypted_message
+            sending_socket.sendall(data)
+        except socket.timeout:
+            message = "<font color = #F00>" + "File not sent: User offline" + "</color>"
+            message_box.append(message)
+            return
+
+    message = f"<font color = #0F0>File sent successfully: {os.path.split(filename)[1]}</color>"
+    message_box.append(message)
+
 def send_message(selected_user: str, message: str) -> None:
     PORT = 8001
     MAGIC_PASS = b"iJ9d2J,"
@@ -771,9 +891,8 @@ def send_message(selected_user: str, message: str) -> None:
         return
 
     PUBLIC_KEY = client[2]
-    RSA_SIGNATURE = rsa.sign(message.encode(encoding="utf-8"), RSA_ENCRYPTION.get_private_key(), "SHA-256")
 
-    encrypted_message = MAGIC_PASS + pickle.dumps(MessageObject(message, RSA_SIGNATURE, PUBLIC_KEY, selected_user))
+    encrypted_message = MAGIC_PASS + pickle.dumps(MessageObject(message, PUBLIC_KEY, selected_user))
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sending_socket:
         # Connect to server and send data
@@ -791,6 +910,73 @@ def send_message(selected_user: str, message: str) -> None:
     message = "<font color = #0F0>" + CONTROLLER.username + "</color>" + ": " + "<font color = 'white'>" + message + "</color>"
     message_box.append(message)
     save_message(message, selected_user)
+
+def receive_files():
+    PORT = 8002
+    MAGIC_PASS = b"IJ6d5J,"
+    receiving_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    receiving_socket.bind(("", PORT))
+    receiving_socket.listen(5)
+
+    while True:
+        sender, address = receiving_socket.accept()
+
+        with sender:
+            incoming_data = bytearray()
+            incoming_data.extend(sender.recv(1024))
+
+            while b":" not in incoming_data:
+                incoming_data.extend(sender.recv(1024))
+
+            index = incoming_data.index(b":")
+            file_size = int(incoming_data[:index])
+            incoming_data = incoming_data[index+1:]
+
+            while len(incoming_data) != file_size:
+                incoming_data.extend(sender.recv(1024))
+
+            data = incoming_data
+
+            #Making sure the message is meant for us
+            if data.startswith(MAGIC_PASS):
+                data = data.split(b",", maxsplit=1)[1]
+
+                file_object = pickle.loads(data)
+                file_contents = file_object.get_data()
+                file_name = file_object.get_filename()
+                username = file_object.get_username()
+                signature = file_object.get_signature()
+
+                selected_user = username + " " + address[0]
+
+                CONTROLLER.clients_online_lock.acquire()
+                user_pub_key = CONTROLLER.clients_online.get(address[0])[2]
+                CONTROLLER.clients_online_lock.release()
+
+                try:
+                    rsa.verify(file_contents, signature, user_pub_key)
+                except rsa.pkcs1.VerificationError:
+                    print("Verification Failed")
+                    return
+
+                message = f"<font color = #00F>File recieved: {file_name}</color>"
+
+                tab = CONTROLLER.WINDOW2.tabs
+                client = tab.get(selected_user)
+
+                if client is None:
+                    CONTROLLER.WINDOW2.selected_user_arg = selected_user
+                    CONTROLLER.WINDOW2.create_a_tab.emit()
+                    client = tab.get(selected_user)
+                    message_box = client[0]
+                else:
+                    message_box = client[0]
+                
+                message_box.append(message)
+                CONTROLLER.WINDOW2.file_name = file_name
+                CONTROLLER.WINDOW2.file_contents = file_contents
+                CONTROLLER.WINDOW2.receiving_message_box = message_box
+                CONTROLLER.WINDOW2.save_file.emit()
 
 def receive_messages():
     PORT = 8001
@@ -823,7 +1009,7 @@ def receive_messages():
                 data = data.split(b",", maxsplit=1)[1]
 
                 message_object = pickle.loads(data)
-                message = message_object.get_message()
+                message = message_object.get_data().decode(encoding="utf-8")
                 username = message_object.get_username()
                 signature = message_object.get_signature()
 

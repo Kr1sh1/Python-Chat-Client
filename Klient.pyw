@@ -16,7 +16,7 @@ from cryptography.fernet import Fernet
 from time import sleep, time
 from PyQt5.QtWidgets import QMainWindow, QApplication, QListWidgetItem, QWidget, QPlainTextEdit, QPushButton, QFileDialog
 from PyQt5 import QtCore, QtWidgets
-from login_window import Ui_MainWindow as login_window
+from login_window import Ui_LoginWindow as login_window
 from main_window import Ui_MainWindow as main_window
 
 #The RSACrypt class provides in a simple interface the methods to encrypt or decrypt messages using the RSA algorithm

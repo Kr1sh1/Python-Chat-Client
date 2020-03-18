@@ -52,6 +52,7 @@ class RSACrypt():
         decrypted_message = decrypted_message_bytes.decode("utf8")
         return decrypted_message
 
+#This class implements the functionality of a stack
 class Stack():
     def __init__(self):
         self.items = []
@@ -73,9 +74,10 @@ class Stack():
 #Base class for objects to be sent over the network
 class NetworkObject():
     def __init__(self):
+        #Data is stored only in encrypted form in this class
         self._encrypted_username = None
         self._encrypted_data = None
-        self._rsa_signature = None
+        self._encrypted_rsa_signature = None
         self._encrypted_AES_key = None
         self._fernet_key = None
 
@@ -88,8 +90,8 @@ class NetworkObject():
     def _encrypt_username(self, user: str):
         self._encrypted_username = CONTROLLER.get_fernet_key(user)[0].encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
 
-    def store_rsa_signature(self, data):
-        self._rsa_signature = rsa.sign(data, RSA_ENCRYPTION.get_private_key(), "SHA-256")
+    def store_encrypted_rsa_signature(self, data, user: str):
+        self._encrypted_rsa_signature = CONTROLLER.get_fernet_key(user)[0].encrypt(rsa.sign(data, RSA_ENCRYPTION.get_private_key(), "SHA-256"))
 
     def get_data(self):
         decrypted_AES_key = RSA_ENCRYPTION.decrypt_message(self._encrypted_AES_key)
@@ -100,16 +102,18 @@ class NetworkObject():
         return self._fernet_key.decrypt(self._encrypted_username).decode(encoding="utf-8")
 
     def get_signature(self):
-        return self._rsa_signature
+        return self._fernet_key.decrypt(self._encrypted_rsa_signature)
 
+#Message class stores the encrypted message to be sent over the network
 class MessageObject(NetworkObject):
     def __init__(self, data: str, public_key, user: str):
         super(MessageObject, self).__init__()
         self._encrypt_data(bytes(data, encoding="utf-8"), user)
         self._encrypt_AES_key(CONTROLLER.get_fernet_key(user)[1], public_key)
         self._encrypt_username(user)
-        self.store_rsa_signature(data.encode(encoding="utf-8"))
+        self.store_encrypted_rsa_signature(data.encode(encoding="utf-8"), user)
 
+#File class stores the encrypted contents and name of a file to be sent over the network
 class FileObject(NetworkObject):
     def __init__(self, filename: str, public_key, user: str):
         super(FileObject, self).__init__()
@@ -118,7 +122,7 @@ class FileObject(NetworkObject):
         self._encrypt_data(self.__get_file_contents(filename), user)
         self._encrypt_username(user)
         self.__encrypt_filename(filename, user)
-        self.store_rsa_signature(self.__get_file_contents(filename))
+        self.store_encrypted_rsa_signature(self.__get_file_contents(filename), user)
 
     def __encrypt_filename(self, filename, user):
         filename = os.path.split(filename)[1]
@@ -562,6 +566,7 @@ class MainWindow(QMainWindow, main_window):
         pushButton.setText("SEND \n MESSAGE")
         return pushButton
 
+    #This opens the file dialog where the user can select a file
     def open_file_dialog(self, selected_user):
         filename = QFileDialog.getOpenFileName(self)[0]
         if not filename:
@@ -569,6 +574,7 @@ class MainWindow(QMainWindow, main_window):
 
         send_file(selected_user, filename)
 
+    #This opens the file dialog where the user can select a location to save the file
     def save_file_dialog(self):
         save_file_name = QFileDialog.getSaveFileName(self, "Save As", self.file_name)[0]
         if not save_file_name:
@@ -584,7 +590,7 @@ class MainWindow(QMainWindow, main_window):
         message = f"<font color = #0F0>File saved</color>"
         self.receiving_message_box.append(message)
 
-    #Adds message to message box and calls function to send message
+    #This function is run when a message is sent
     def message_entered(self, text_entry, selected_user):
         message = text_entry.toPlainText()
         text_entry.clear()
@@ -599,8 +605,11 @@ class MainWindow(QMainWindow, main_window):
 class WindowController():
     def __init__(self):
         self.login()
+
+        #For every user you communicate with, new AES keys are generated and stores in AES_KEYS
         self.__AES_KEYS = {}
 
+    #Generates AES key which is used to encrypt private key and then stored in the database
     def make_database_fernet_key(self):
         connection = sqlite3.connect("User-details.db")
         cursor = connection.cursor()
@@ -616,10 +625,12 @@ class WindowController():
 
         connection.close()
 
+    #Generates a new AES fernet key, returning the fernet object and key
     def make_message_fernet_key(self):
         AES_KEY = Fernet.generate_key()
         return Fernet(AES_KEY), AES_KEY
 
+    #Returns the fernet key object and key for a specific user, generates new keys if not available
     def get_fernet_key(self, user):
         if user in self.__AES_KEYS:
             return self.__AES_KEYS.get(user)
@@ -637,7 +648,7 @@ class WindowController():
         global sock
         global RSA_ENCRYPTION
 
-        #Thread lock prevents multiple threads from accessing certain variable simultaneously
+        #Thread lock prevents multiple threads from accessing certain variables simultaneously
         self.clients_online = {}
         self.clients_online_lock = threading.Lock()
         self.database_lock = threading.Lock()
@@ -671,7 +682,7 @@ class WindowController():
         sock.bind((socket.getfqdn(), 8000))
 
         #Runnings these functions in their own threads as they need to be running constantly and shouldn't be blocked by other code
-        #This thread is a "daemon", so when the main program thread is killed this thread will also be killed.
+        #These threads are "daemons", so when the main program thread is killed these threads will also be killed.
         #This makes sure no threads are left alive accidentally is the program is force closed.
         t1 = threading.Thread(target=broadcast_self, args=(self.username,), daemon=True)
         t2 = threading.Thread(target=detect_other_clients, daemon=True)
@@ -687,6 +698,7 @@ class WindowController():
         t4.start()
         t5.start()
 
+#Creates the PairID for 2 users based on how many records exist
 def create_pair_id(cursor, OtherParty):
     cursor.execute("""SELECT Count(*)
                     FROM CommunicationPairs""")
@@ -696,6 +708,7 @@ def create_pair_id(cursor, OtherParty):
 
     return PairID
 
+#Returns the PairID of 2 users
 def get_pair_id(cursor, OtherParty):
     cursor.execute("""SELECT PairID
                     FROM CommunicationPairs
@@ -731,6 +744,7 @@ def create_database(cursor):
                 Message BLOB,
                 FOREIGN KEY(PairID) REFERENCES CommunicationPairs(PairID))""")
 
+#Merge sort algorithm
 def merge_sort(data: list) -> list:
     if len(data) == 1:
         return data
@@ -761,6 +775,7 @@ def merge_sort(data: list) -> list:
         new_order.extend(left)
     return new_order
 
+#This retrieves all the messages for a user pair from previous conversations saved to the database
 def retrieve_messages(user: str) -> None:
     tab = CONTROLLER.WINDOW2.tabs
     message_box = tab.get(user)[0]
@@ -782,21 +797,22 @@ def retrieve_messages(user: str) -> None:
         date = pickle.loads(date)
         message = payload[1]
         message = CONTROLLER.fernet_database_key.decrypt(message).decode(encoding="utf8")
-        time_message.append((date, message))
+        time_message.append([date, message])
         
+    connection.close()
+    CONTROLLER.database_lock.release()
+    
     #No messages available
     if not time_message:
-        CONTROLLER.database_lock.release()
         return
 
+    #Messages are sorted in ascending order based on their timestamps
     sorted_messages = merge_sort(time_message)
 
     for x in sorted_messages:
         message_box.append(x[1])
 
-    connection.close()
-    CONTROLLER.database_lock.release()
-
+#Saves a message to the database
 def save_message(message: str, OtherParty: str) -> None:
     CONTROLLER.database_lock.acquire()
     connection = sqlite3.connect("User-details.db")
@@ -821,6 +837,7 @@ def save_message(message: str, OtherParty: str) -> None:
     connection.close()
     CONTROLLER.database_lock.release()
 
+#Checks if a table exists in the database (No tables exist on a fresh install)
 def table_exists(cursor: object, table_name: str) -> bool:
     cursor.execute("""SELECT name 
                     FROM sqlite_master 
@@ -838,6 +855,7 @@ def table_exists(cursor: object, table_name: str) -> bool:
 def exit_program():
     sys.exit()
 
+#Sends file objects over the network
 def send_file(selected_user: str, filename: str):
     PORT = 8002
     MAGIC_PASS = b"IJ6d5J,"
@@ -874,6 +892,7 @@ def send_file(selected_user: str, filename: str):
     message = f"<font color = #0F0>File sent successfully: {os.path.split(filename)[1]}</color>"
     message_box.append(message)
 
+#Sends message objects over the network
 def send_message(selected_user: str, message: str) -> None:
     PORT = 8001
     MAGIC_PASS = b"iJ9d2J,"
@@ -911,6 +930,7 @@ def send_message(selected_user: str, message: str) -> None:
     message_box.append(message)
     save_message(message, selected_user)
 
+#Receive file objects from the network
 def receive_files():
     PORT = 8002
     MAGIC_PASS = b"IJ6d5J,"
@@ -922,9 +942,12 @@ def receive_files():
         sender, address = receiving_socket.accept()
 
         with sender:
+            #Incoming bytes from network stored in a byte array (good efficiency)
             incoming_data = bytearray()
             incoming_data.extend(sender.recv(1024))
 
+            #Data sent over the network is formatted like such:
+            #  data_langth:data
             while b":" not in incoming_data:
                 incoming_data.extend(sender.recv(1024))
 
@@ -978,6 +1001,7 @@ def receive_files():
                 CONTROLLER.WINDOW2.receiving_message_box = message_box
                 CONTROLLER.WINDOW2.save_file.emit()
 
+#Receive message objects from the network
 def receive_messages():
     PORT = 8001
     MAGIC_PASS = b"iJ9d2J"
@@ -1040,7 +1064,6 @@ def receive_messages():
                     message_box.append(message)
 
 #Function to hash password with supplied salt, or randomly generated one if not supplied
-
 def hash_password(password: str, salt: bytes=None) -> bytes:
     password_bytes = bytes(password, encoding="utf-8")
     if salt is None:

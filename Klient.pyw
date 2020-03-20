@@ -980,7 +980,7 @@ def receive_files():
                     rsa.verify(file_contents, signature, user_pub_key)
                 except rsa.pkcs1.VerificationError:
                     print("Verification Failed")
-                    return
+                    continue
 
                 message = f"<font color = #00F>File recieved: {file_name}</color>"
 
@@ -990,7 +990,11 @@ def receive_files():
                 if client is None:
                     CONTROLLER.WINDOW2.selected_user_arg = selected_user
                     CONTROLLER.WINDOW2.create_a_tab.emit()
-                    client = tab.get(selected_user)
+                    #The tab variable is being modified in a different thread
+                    #Sometimes it isn't updated fast enough so we get a None value
+                    #Using a while loop here is safe as it's guaranteed tab.get(selected-user) will eventually return a none None value
+                    while client is None:
+                        client = tab.get(selected_user)
                     message_box = client[0]
                 else:
                     message_box = client[0]
@@ -1047,7 +1051,7 @@ def receive_messages():
                     rsa.verify(message.encode(encoding="utf-8"), signature, user_pub_key)
                 except rsa.pkcs1.VerificationError:
                     print("Verification Failed")
-                    return
+                    continue
 
                 message = "<font color = #0FF>" + username + ": " + "</color>" + "<font color = 'white'>" + message + "</color>"
 
@@ -1111,7 +1115,7 @@ def remove_offline_clients():
     while True:
         CONTROLLER.clients_online_lock.acquire()
         for key, value in CONTROLLER.clients_online.items():
-            #If broadcast hasn't been received in the last 2 seconds, this condition is true
+            #If broadcast hasn't been received in the last second, this condition is true
             #The client is then removed from our dictionary
             if (time()-value[0]) > 1:
                 value[3] = False

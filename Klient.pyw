@@ -85,16 +85,16 @@ class NetworkObject():
         self._encrypted_data = CONTROLLER.get_fernet_key(user)[0].encrypt(data)
 
     def _encrypt_AES_key(self, key: bytes, public_key: bytes):
-        self._encrypted_AES_key = RSA_ENCRYPTION.encrypt_message(key, public_key)
+        self._encrypted_AES_key = CONTROLLER.RSA_ENCRYPTION.encrypt_message(key, public_key)
 
     def _encrypt_username(self, user: str):
         self._encrypted_username = CONTROLLER.get_fernet_key(user)[0].encrypt(bytes(CONTROLLER.username, encoding="utf-8"))
 
     def store_encrypted_rsa_signature(self, data, user: str):
-        self._encrypted_rsa_signature = CONTROLLER.get_fernet_key(user)[0].encrypt(rsa.sign(data, RSA_ENCRYPTION.get_private_key(), "SHA-256"))
+        self._encrypted_rsa_signature = CONTROLLER.get_fernet_key(user)[0].encrypt(rsa.sign(data, CONTROLLER.RSA_ENCRYPTION.get_private_key(), "SHA-256"))
 
     def get_data(self):
-        decrypted_AES_key = RSA_ENCRYPTION.decrypt_message(self._encrypted_AES_key)
+        decrypted_AES_key = CONTROLLER.RSA_ENCRYPTION.decrypt_message(self._encrypted_AES_key)
         self._fernet_key = Fernet(decrypted_AES_key)
         return self._fernet_key.decrypt(self._encrypted_data)
 
@@ -647,20 +647,16 @@ class WindowController():
         self.WINDOW1 = LoginWindow()
 
     def main_window(self):
-        global dict_list_items
-        global sock
-        global RSA_ENCRYPTION
-
         #Thread lock prevents multiple threads from accessing certain variables simultaneously
         self.clients_online = {}
         self.clients_online_lock = threading.Lock()
         self.database_lock = threading.Lock()
 
-        dict_list_items = {}
+        self.dict_list_items = {}
         self.username = self.WINDOW1.username
         self.password = self.WINDOW1.password
 
-        RSA_ENCRYPTION = RSACrypt()
+        self.RSA_ENCRYPTION = RSACrypt()
 
         #Checks if keys are available in database and updates them in RSACrypt class, else generates new keys
         keys = check_rsa_keys_available()
@@ -668,14 +664,14 @@ class WindowController():
             self.WINDOW1.InformationLabel.setText("Generating RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
             self.WINDOW1.InformationLabel.repaint()
-            public_key, __private_key = RSA_ENCRYPTION.generate_new_keys()
+            public_key, __private_key = self.RSA_ENCRYPTION.generate_new_keys()
             save_rsa_keys(public_key, __private_key)
             CONTROLLER.make_database_fernet_key()
         else:
             self.WINDOW1.InformationLabel.setText("Loading RSA keys...")
             self.WINDOW1.InformationLabel.setStyleSheet('color: blue')
             self.WINDOW1.InformationLabel.repaint()
-            RSA_ENCRYPTION.update_keys(keys[0], keys[1])
+            self.RSA_ENCRYPTION.update_keys(keys[0], keys[1])
 
         self.WINDOW1.close()
 
@@ -687,8 +683,8 @@ class WindowController():
         #Runnings these functions in their own threads as they need to be running constantly and shouldn't be blocked by other code
         #These threads are "daemons", so when the main program thread is killed these threads will also be killed.
         #This makes sure no threads are left alive accidentally is the program is force closed.
-        t1 = threading.Thread(target=broadcast_self, args=(self.username,), daemon=True)
-        t2 = threading.Thread(target=detect_other_clients, daemon=True)
+        t1 = threading.Thread(target=broadcast_self, args=(self.username, sock), daemon=True)
+        t2 = threading.Thread(target=detect_other_clients, args=(sock,), daemon=True)
         t3 = threading.Thread(target=remove_offline_clients, daemon=True)
         t4 = threading.Thread(target=receive_messages, daemon=True)
         t5 = threading.Thread(target=receive_files, daemon=True)
@@ -1081,12 +1077,12 @@ def hash_password(password: str, salt: bytes=None) -> bytes:
 
 #This function announces itself on the local network to anyone listening on port 8000
 #This allows us and other clients to see who's online.
-def broadcast_self(username):
+def broadcast_self(username, sock):
     PORT = 8000
     USERNAME = username + ","
 
     #Other users on the network need this key to encrypt their messages and send them to you
-    PUBLIC_KEY = RSA_ENCRYPTION.get_public_key()
+    PUBLIC_KEY = CONTROLLER.RSA_ENCRYPTION.get_public_key()
 
     #The variable MAGIC_PASS is used so we don't accidentally get confused with other applications that are broadcasting on port 8000
     #When detecting broadcasts, we can check if the MAGIC_PASS value is at the beginning, so we know that the message is meant for us
@@ -1100,7 +1096,7 @@ def broadcast_self(username):
         sleep(0.2)
 
 #This function detects broadcasts on port 8000 made by other instances of this program.
-def detect_other_clients():
+def detect_other_clients(sock):
     MAGIC_PASS = "GywBVeCg2Z"
     HOST_NAME = socket.gethostname()
     IP_ADDRESS = socket.gethostbyname(HOST_NAME)
@@ -1172,15 +1168,13 @@ def update_online_clients(client_data):
 
 #Updating the list users click on in the GUI
 def remove_client_from_online_list(client_data):
-    global dict_list_items
-    item = dict_list_items.get(client_data[1] + " " + client_data[0])
+    item = CONTROLLER.dict_list_items.get(client_data[1] + " " + client_data[0])
     CONTROLLER.WINDOW2.listWidget.takeItem(CONTROLLER.WINDOW2.listWidget.row(item))
 
 def add_client_to_online_list(client_data):
-    global dict_list_items
     item = QListWidgetItem(client_data[1] + " " + str(client_data[0]))
     CONTROLLER.WINDOW2.listWidget.addItem(item)
-    dict_list_items[client_data[1] + " " + client_data[0]] = item
+    CONTROLLER.dict_list_items[client_data[1] + " " + client_data[0]] = item
 
 #Return (PublicKey, PrivateKey) | (False)
 def check_rsa_keys_available():
@@ -1225,13 +1219,8 @@ def save_rsa_keys(public_key, private_key):
     connection.commit()
     connection.close()
 
-def main():
-    global CONTROLLER
-
+if __name__ == '__main__':
     APP = QApplication(sys.argv)
     CONTROLLER = WindowController()
     sys.exit(APP.exec_())
-
-if __name__ == '__main__':
-    main()
     

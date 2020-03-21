@@ -992,7 +992,8 @@ def receive_files():
                     CONTROLLER.WINDOW2.create_a_tab.emit()
                     #The tab variable is being modified in a different thread
                     #Sometimes it isn't updated fast enough so we get a None value
-                    #Using a while loop here is safe as it's guaranteed tab.get(selected-user) will eventually return a none None value
+                    #Using a while loop here is safe as it's guaranteed that
+                    #tab.get(selected-user) will eventually return a none None value
                     while client is None:
                         client = tab.get(selected_user)
                     message_box = client[0]

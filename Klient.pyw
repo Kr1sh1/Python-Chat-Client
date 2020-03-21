@@ -587,6 +587,9 @@ class MainWindow(QMainWindow, main_window):
         with open(save_file_name, "wb") as file_object:
             file_object.write(self.file_contents)
 
+        self.file_contents = None
+        self.file_name = None
+
         message = f"<font color = #0F0>File saved</color>"
         self.receiving_message_box.append(message)
 

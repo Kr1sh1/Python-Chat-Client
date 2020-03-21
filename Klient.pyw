@@ -1150,6 +1150,7 @@ def update_online_clients(client_data):
     #Adding client to dictionary
     CONTROLLER.clients_online[client_data[0]] = [time(), client_data[1], client_data[2], True]
     add_client_to_online_list(client_data)
+    number_of_clients_online += 1
     CONTROLLER.WINDOW2.numberOfClientsLabel.setText(str(number_of_clients_online))
     CONTROLLER.clients_online_lock.release()
 

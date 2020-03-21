@@ -384,8 +384,8 @@ class LoginWindow(QMainWindow, login_window):
 
 #Class for main window
 class MainWindow(QMainWindow, main_window):
-    create_a_tab = QtCore.pyqtSignal()
-    save_file = QtCore.pyqtSignal()
+    create_a_tab = QtCore.pyqtSignal(str)
+    save_file = QtCore.pyqtSignal(bytes, QtWidgets.QTextEdit)
     def __init__(self):
         super(MainWindow, self).__init__()
 
@@ -397,12 +397,7 @@ class MainWindow(QMainWindow, main_window):
         self.actionExit.triggered.connect(exit_program)
         self.listWidget.itemDoubleClicked.connect(self.item_changed)
 
-        self.selected_user_arg = None
-        self.file_contents = None
-        self.file_name = None
-        self.receiving_message_box = None
-
-        self.create_a_tab.connect(lambda: self.create_tab(self.selected_user_arg))
+        self.create_a_tab.connect(self.create_tab)
         self.save_file.connect(self.save_file_dialog)
 
         #This dictionary is used to keep track of dynamically generated objects
@@ -575,23 +570,18 @@ class MainWindow(QMainWindow, main_window):
         send_file(selected_user, filename)
 
     #This opens the file dialog where the user can select a location to save the file
-    def save_file_dialog(self):
-        save_file_name = QFileDialog.getSaveFileName(self, "Save As", self.file_name)[0]
+    def save_file_dialog(self, file_contents, message_box):
+        save_file_name = QFileDialog.getSaveFileName(self)[0]
         if not save_file_name:
-            self.file_contents = None
-            self.file_name = None
             message = f"<font color = #F00>File discarded</color>"
-            self.receiving_message_box.append(message)
+            message_box.append(message)
             return
         
         with open(save_file_name, "wb") as file_object:
-            file_object.write(self.file_contents)
-
-        self.file_contents = None
-        self.file_name = None
+            file_object.write(file_contents)
 
         message = f"<font color = #0F0>File saved</color>"
-        self.receiving_message_box.append(message)
+        message_box.append(message)
 
     #This function is run when a message is sent
     def message_entered(self, text_entry, selected_user):
@@ -988,7 +978,7 @@ def receive_files():
 
                 if client is None:
                     CONTROLLER.WINDOW2.selected_user_arg = selected_user
-                    CONTROLLER.WINDOW2.create_a_tab.emit()
+                    CONTROLLER.WINDOW2.create_a_tab.emit(selected_user)
                     #The tab variable is being modified in a different thread
                     #Sometimes it isn't updated fast enough so we get a None value
                     #Using a while loop here is safe as it's guaranteed that
@@ -1000,10 +990,7 @@ def receive_files():
                     message_box = client[0]
                 
                 message_box.append(message)
-                CONTROLLER.WINDOW2.file_name = file_name
-                CONTROLLER.WINDOW2.file_contents = file_contents
-                CONTROLLER.WINDOW2.receiving_message_box = message_box
-                CONTROLLER.WINDOW2.save_file.emit()
+                CONTROLLER.WINDOW2.save_file.emit(file_contents, message_box)
 
 #Receive message objects from the network
 def receive_messages():
@@ -1062,7 +1049,7 @@ def receive_messages():
 
                 if client is None:
                     CONTROLLER.WINDOW2.selected_user_arg = selected_user
-                    CONTROLLER.WINDOW2.create_a_tab.emit()
+                    CONTROLLER.WINDOW2.create_a_tab.emit(selected_user)
                 else:
                     message_box = client[0]
                     message_box.append(message)

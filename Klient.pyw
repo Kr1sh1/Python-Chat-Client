@@ -933,19 +933,19 @@ def receive_files():
         with sender:
             #Incoming bytes from network stored in a byte array (good efficiency)
             incoming_data = bytearray()
-            incoming_data.extend(sender.recv(1024))
+            incoming_data.extend(sender.recv(4096))
 
             #Data sent over the network is formatted like such:
             #  data_langth:data
             while b":" not in incoming_data:
-                incoming_data.extend(sender.recv(1024))
+                incoming_data.extend(sender.recv(4096))
 
             index = incoming_data.index(b":")
             file_size = int(incoming_data[:index])
             incoming_data = incoming_data[index+1:]
 
             while len(incoming_data) != file_size:
-                incoming_data.extend(sender.recv(1024))
+                incoming_data.extend(sender.recv(4096))
 
             data = incoming_data
 
@@ -1005,17 +1005,17 @@ def receive_messages():
 
         with sender:
             incoming_data = bytearray()
-            incoming_data.extend(sender.recv(1024))
+            incoming_data.extend(sender.recv(4096))
 
             while b":" not in incoming_data:
-                incoming_data.extend(sender.recv(1024))
+                incoming_data.extend(sender.recv(4096))
 
             index = incoming_data.index(b":")
             message_size = int(incoming_data[:index])
             incoming_data = incoming_data[index+1:]
 
             while len(incoming_data) != message_size:
-                incoming_data.extend(sender.recv(1024))
+                incoming_data.extend(sender.recv(4096))
 
             data = incoming_data
 
